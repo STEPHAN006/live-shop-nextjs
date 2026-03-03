@@ -7,6 +7,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
+import { Modal } from '@/components/ui/modal';
 
 type DbVideo = {
   id: string;
@@ -26,6 +27,21 @@ export default function VendorVideosPage() {
   const [videos, setVideos] = useState<DbVideo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [query, setQuery] = useState('');
+
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [infoTitle, setInfoTitle] = useState('');
+  const [infoMessage, setInfoMessage] = useState('');
+
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmVideoId, setConfirmVideoId] = useState<string | null>(null);
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [editVideoId, setEditVideoId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editThumbnail, setEditThumbnail] = useState('');
+  const [editUrl, setEditUrl] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
 
   useEffect(() => {
     if (isAuthLoading) return;
@@ -59,19 +75,180 @@ export default function VendorVideosPage() {
     return videos.filter((v) => v.title.toLowerCase().includes(q));
   }, [videos, query]);
 
+  const openInfo = (title: string, message: string) => {
+    setInfoTitle(title);
+    setInfoMessage(message);
+    setInfoOpen(true);
+  };
+
+  const requestDelete = (id: string) => {
+    setConfirmVideoId(id);
+    setConfirmOpen(true);
+  };
+
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this video?')) return;
     const supabase = getSupabaseBrowserClient();
     const { error } = await supabase.from('videos').delete().eq('id', id);
     if (error) {
-      alert(error.message);
+      openInfo('Error', error.message);
       return;
     }
     setVideos((prev) => prev.filter((v) => v.id !== id));
   };
 
+  const requestEdit = (v: DbVideo) => {
+    setEditVideoId(v.id);
+    setEditTitle(v.title ?? '');
+    setEditDescription(v.description ?? '');
+    setEditThumbnail(v.thumbnail ?? '');
+    setEditUrl(v.video_url ?? '');
+    setEditOpen(true);
+  };
+
+  const saveEdit = async () => {
+    if (!editVideoId) return;
+    setEditSaving(true);
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const { error } = await supabase
+        .from('videos')
+        .update({
+          title: editTitle,
+          description: editDescription,
+          thumbnail: editThumbnail,
+          video_url: editUrl,
+        })
+        .eq('id', editVideoId);
+
+      if (error) throw error;
+
+      setVideos((prev) =>
+        prev.map((v) =>
+          v.id === editVideoId
+            ? { ...v, title: editTitle, description: editDescription, thumbnail: editThumbnail, video_url: editUrl }
+            : v
+        )
+      );
+      setEditOpen(false);
+      setEditVideoId(null);
+    } catch (err: any) {
+      openInfo('Error', err.message || 'Failed to update video');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-8">
+      <Modal
+        open={infoOpen}
+        title={infoTitle}
+        onClose={() => setInfoOpen(false)}
+        footer={
+          <button
+            type="button"
+            onClick={() => setInfoOpen(false)}
+            className="px-5 py-2.5 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all"
+          >
+            Close
+          </button>
+        }
+      >
+        <p className="text-sm text-zinc-600 leading-relaxed">{infoMessage}</p>
+      </Modal>
+
+      <Modal
+        open={confirmOpen}
+        title="Delete video"
+        onClose={() => setConfirmOpen(false)}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setConfirmOpen(false)}
+              className="px-5 py-2.5 bg-white border border-zinc-200 text-zinc-900 rounded-xl text-xs font-bold hover:bg-zinc-50 transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                if (!confirmVideoId) return;
+                setConfirmOpen(false);
+                await handleDelete(confirmVideoId);
+                setConfirmVideoId(null);
+              }}
+              className="px-5 py-2.5 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 transition-all"
+            >
+              Delete
+            </button>
+          </>
+        }
+      >
+        <p className="text-sm text-zinc-600 leading-relaxed">This will permanently delete the video.</p>
+      </Modal>
+
+      <Modal
+        open={editOpen}
+        title="Edit video"
+        onClose={() => setEditOpen(false)}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setEditOpen(false)}
+              className="px-5 py-2.5 bg-white border border-zinc-200 text-zinc-900 rounded-xl text-xs font-bold hover:bg-zinc-50 transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={editSaving}
+              onClick={saveEdit}
+              className="px-5 py-2.5 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all disabled:opacity-60"
+            >
+              Save
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Title</p>
+            <input
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              className="w-full px-4 py-2.5 bg-white border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/5 focus:border-zinc-900 transition-all"
+            />
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Description</p>
+            <textarea
+              rows={4}
+              value={editDescription}
+              onChange={(e) => setEditDescription(e.target.value)}
+              className="w-full px-4 py-2.5 bg-white border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/5 focus:border-zinc-900 transition-all resize-none"
+            />
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Thumbnail URL</p>
+            <input
+              value={editThumbnail}
+              onChange={(e) => setEditThumbnail(e.target.value)}
+              className="w-full px-4 py-2.5 bg-white border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/5 focus:border-zinc-900 transition-all"
+            />
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Video URL</p>
+            <input
+              value={editUrl}
+              onChange={(e) => setEditUrl(e.target.value)}
+              className="w-full px-4 py-2.5 bg-white border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/5 focus:border-zinc-900 transition-all"
+            />
+          </div>
+        </div>
+      </Modal>
+
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-zinc-900 tracking-tight">Video Content</h1>
@@ -140,14 +317,14 @@ export default function VendorVideosPage() {
                 <div className="flex gap-2">
                   <button 
                     type="button"
-                    onClick={() => alert('Not implemented')}
+                    onClick={() => requestEdit(video)}
                     className="p-2.5 bg-zinc-50 text-zinc-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all border border-zinc-100"
                   >
                     <Edit2 size={16} />
                   </button>
                   <button 
                     type="button"
-                    onClick={() => handleDelete(video.id)}
+                    onClick={() => requestDelete(video.id)}
                     className="p-2.5 bg-zinc-50 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all border border-zinc-100"
                   >
                     <Trash2 size={16} />

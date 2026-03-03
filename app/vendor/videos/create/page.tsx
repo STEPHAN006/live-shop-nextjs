@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { ArrowLeft, Video, Upload, Loader2, Save, Info, ShoppingBag, Plus } from 'lucide-react';
+import { ArrowLeft, Video, Upload, Loader2, Save, Info, ShoppingBag, Plus, CheckCircle2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { useAuth } from '@/hooks/use-auth';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
+import { uploadToPublicBucket } from '@/lib/storage';
 
 type DbProduct = {
   id: string;
@@ -18,15 +19,75 @@ type DbProduct = {
 
 export default function CreateVideoPage() {
   const [isLoading, setIsLoading] = useState(false);
+  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
+  const [isUploadingThumb, setIsUploadingThumb] = useState(false);
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
   const [thumbnail, setThumbnail] = useState('');
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
   const [products, setProducts] = useState<DbProduct[]>([]);
   const [error, setError] = useState('');
   const { user, isLoading: isAuthLoading } = useAuth();
   const router = useRouter();
+
+  const ensureProfile = async () => {
+    if (isAuthLoading || !user) throw new Error('Not authenticated');
+    const supabase = getSupabaseBrowserClient();
+
+    const meta = (user as any)?.user_metadata as Record<string, any> | undefined;
+
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('id, role')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (profileError) throw profileError;
+    if (profile?.id) return;
+
+    const { error: insertProfileError } = await supabase.from('profiles').insert({
+      id: user.id,
+      name: meta?.name ?? meta?.full_name ?? 'Vendor',
+      email: user.email ?? '',
+      role: 'VENDOR',
+    });
+    if (insertProfileError) throw insertProfileError;
+  };
+
+  const uploadVideoFile = async (file: File) => {
+    if (isAuthLoading || !user) throw new Error('Not authenticated');
+    setIsUploadingVideo(true);
+    try {
+      const { publicUrl } = await uploadToPublicBucket({
+        bucket: 'video-assets',
+        pathPrefix: `videos/${user.id}`,
+        file,
+      });
+      setVideoUrl(publicUrl);
+      setVideoFile(file);
+    } finally {
+      setIsUploadingVideo(false);
+    }
+  };
+
+  const uploadThumbnailFile = async (file: File) => {
+    if (isAuthLoading || !user) throw new Error('Not authenticated');
+    setIsUploadingThumb(true);
+    try {
+      const { publicUrl } = await uploadToPublicBucket({
+        bucket: 'video-assets',
+        pathPrefix: `thumbnails/${user.id}`,
+        file,
+      });
+      setThumbnail(publicUrl);
+      setThumbnailFile(file);
+    } finally {
+      setIsUploadingThumb(false);
+    }
+  };
 
   useEffect(() => {
     if (isAuthLoading) return;
@@ -64,6 +125,10 @@ export default function CreateVideoPage() {
 
     try {
       if (isAuthLoading || !user) throw new Error('Not authenticated');
+      if (!videoUrl.trim()) throw new Error('Please upload a video or provide a URL');
+      if (!thumbnail.trim()) throw new Error('Please upload a thumbnail or provide a URL');
+
+      await ensureProfile();
 
       const supabase = getSupabaseBrowserClient();
       const { data: inserted, error: insertError } = await supabase
@@ -100,7 +165,7 @@ export default function CreateVideoPage() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    <div className=" mx-auto space-y-8">
       <Link href="/vendor/videos" className="inline-flex items-center gap-2 text-sm font-bold text-zinc-500 hover:text-zinc-900 transition-colors">
         <ArrowLeft size={18} /> Back to Content
       </Link>
@@ -146,7 +211,6 @@ export default function CreateVideoPage() {
               <label className="text-sm font-bold text-zinc-700 ml-1">Video URL</label>
               <input
                 type="url"
-                required
                 value={videoUrl}
                 onChange={(e) => setVideoUrl(e.target.value)}
                 placeholder="https://..."
@@ -195,24 +259,75 @@ export default function CreateVideoPage() {
               <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider ml-1">Thumbnail URL</label>
               <input
                 type="url"
-                required
                 value={thumbnail}
                 onChange={(e) => setThumbnail(e.target.value)}
                 placeholder="https://..."
                 className="w-full px-6 py-4 bg-zinc-50 border border-zinc-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all"
               />
             </div>
-            <div className="border-2 border-dashed border-zinc-200 rounded-2xl p-10 text-center space-y-2 hover:border-emerald-500 transition-colors cursor-pointer bg-zinc-50 group">
+            <label className="border-2 border-dashed border-zinc-200 rounded-2xl p-10 text-center space-y-2 hover:border-emerald-500 transition-colors cursor-pointer bg-zinc-50 group block">
+              <input
+                type="file"
+                accept="video/mp4,video/quicktime,video/webm"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0] ?? null;
+                  if (!file) return;
+                  setError('');
+                  try {
+                    await uploadVideoFile(file);
+                  } catch (err: any) {
+                    setError(err.message || 'Failed to upload video');
+                  }
+                }}
+              />
               <Upload className="mx-auto text-zinc-400 group-hover:text-emerald-600 transition-colors" size={40} />
               <p className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Upload Video</p>
-              <p className="text-[10px] text-zinc-400">MP4, MOV (max. 500MB)</p>
-            </div>
+              <p className="text-[10px] text-zinc-400">MP4, MOV, WEBM</p>
+              {isUploadingVideo ? <p className="text-[10px] text-zinc-400">Uploading...</p> : null}
+              {videoFile ? (
+                <p className="text-[10px] text-zinc-500 font-medium flex items-center justify-center gap-1.5">
+                  <CheckCircle2 size={14} className="text-emerald-600" /> Uploaded: {videoFile.name}
+                </p>
+              ) : null}
+            </label>
+
+            {videoUrl ? (
+              <div className="p-3 bg-zinc-50 border border-zinc-200 rounded-2xl space-y-2">
+                <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Preview</p>
+                <video src={videoUrl} controls className="w-full rounded-xl max-h-44 bg-black" />
+              </div>
+            ) : null}
 
             <div className="space-y-2">
               <h3 className="font-bold text-zinc-900 text-sm">Thumbnail</h3>
-              <div className="aspect-video bg-zinc-50 border border-zinc-200 rounded-2xl flex items-center justify-center text-zinc-400 hover:bg-zinc-100 transition-all cursor-pointer">
-                <Plus size={24} />
-              </div>
+              <label className="relative aspect-video bg-zinc-50 border border-zinc-200 rounded-2xl flex items-center justify-center text-zinc-400 hover:bg-zinc-100 transition-all cursor-pointer overflow-hidden">
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0] ?? null;
+                    if (!file) return;
+                    setError('');
+                    try {
+                      await uploadThumbnailFile(file);
+                    } catch (err: any) {
+                      setError(err.message || 'Failed to upload thumbnail');
+                    }
+                  }}
+                />
+                {thumbnail ? (
+                  <Image src={thumbnail} alt="Thumbnail" fill className="object-cover" referrerPolicy="no-referrer" />
+                ) : isUploadingThumb ? (
+                  <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Uploading...</p>
+                ) : (
+                  <Plus size={24} />
+                )}
+              </label>
+              {thumbnailFile ? (
+                <p className="text-[10px] text-zinc-500 font-medium">Uploaded: {thumbnailFile.name}</p>
+              ) : null}
             </div>
             
             <div className="p-4 bg-blue-50 border border-blue-100 rounded-2xl flex gap-3 text-blue-700">
@@ -225,7 +340,7 @@ export default function CreateVideoPage() {
 
           <button 
             type="submit"
-            disabled={isLoading}
+            disabled={isLoading || isUploadingVideo || isUploadingThumb}
             className="w-full py-4 bg-zinc-900 text-white rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-zinc-800 transition-all shadow-lg active:scale-95 disabled:opacity-70"
           >
             {isLoading ? <Loader2 className="animate-spin" size={20} /> : <><Save size={20} /> Publish Video</>}

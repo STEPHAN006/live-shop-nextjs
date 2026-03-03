@@ -11,7 +11,7 @@ export default function BuyerProfilePage() {
   if (isLoading || !user) return null;
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    <div className=" mx-auto space-y-8">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center gap-6">
           <div className="w-24 h-24 rounded-3xl bg-zinc-900 text-white flex items-center justify-center text-4xl font-bold shadow-xl border-4 border-white">

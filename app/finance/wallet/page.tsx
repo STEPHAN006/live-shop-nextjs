@@ -34,7 +34,7 @@ export default function WalletPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50 p-6 md:p-12">
-      <div className="max-w-4xl mx-auto space-y-8">
+      <div className=" mx-auto space-y-8">
         <Link 
           href={user.role === 'BUYER' ? '/buyer/feed' : '/vendor/dashboard'} 
           className="inline-flex items-center gap-2 text-sm font-bold text-zinc-500 hover:text-zinc-900 transition-colors"

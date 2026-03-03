@@ -2,21 +2,64 @@
 
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { ArrowLeft, Package, DollarSign, Image as ImageIcon, Upload, Loader2, Save, Info } from 'lucide-react';
+import { ArrowLeft, Package, DollarSign, Image as ImageIcon, Upload, Loader2, Save, Info, CheckCircle2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
 import { useAuth } from '@/hooks/use-auth';
+import { uploadToPublicBucket } from '@/lib/storage';
+import Image from 'next/image';
 
 export default function CreateProductPage() {
   const [isLoading, setIsLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState('');
   const [image, setImage] = useState('');
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [error, setError] = useState('');
   const { user, isLoading: isAuthLoading } = useAuth();
   const router = useRouter();
+
+  const ensureProfile = async () => {
+    if (isAuthLoading || !user) throw new Error('Not authenticated');
+    const supabase = getSupabaseBrowserClient();
+
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (profileError) throw profileError;
+    if (profile?.id) return;
+
+    const meta = (user as any)?.user_metadata as Record<string, any> | undefined;
+    const { error: insertProfileError } = await supabase.from('profiles').insert({
+      id: user.id,
+      name: meta?.name ?? meta?.full_name ?? 'Vendor',
+      email: user.email ?? '',
+      role: 'VENDOR',
+    });
+    if (insertProfileError) throw insertProfileError;
+  };
+
+  const uploadImage = async (file: File) => {
+    if (isAuthLoading || !user) throw new Error('Not authenticated');
+    setIsUploading(true);
+    try {
+      const { publicUrl } = await uploadToPublicBucket({
+        bucket: 'product-images',
+        pathPrefix: `products/${user.id}`,
+        file,
+      });
+      setImage(publicUrl);
+      setImageFile(file);
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,6 +68,8 @@ export default function CreateProductPage() {
 
     try {
       if (isAuthLoading || !user) throw new Error('Not authenticated');
+
+      await ensureProfile();
 
       const supabase = getSupabaseBrowserClient();
       const { error: insertError } = await supabase.from('products').insert({
@@ -46,7 +91,7 @@ export default function CreateProductPage() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto space-y-8">
+    <div className=" mx-auto space-y-8">
       <Link href="/vendor/products" className="inline-flex items-center gap-2 text-sm font-bold text-zinc-500 hover:text-zinc-900 transition-colors">
         <ArrowLeft size={18} /> Back to Catalog
       </Link>
@@ -127,17 +172,49 @@ export default function CreateProductPage() {
               <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider ml-1">Image URL</label>
               <input
                 type="url"
-                required
                 value={image}
                 onChange={(e) => setImage(e.target.value)}
                 placeholder="https://..."
                 className="w-full px-6 py-4 bg-zinc-50 border border-zinc-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all"
               />
             </div>
-            <div className="border-2 border-dashed border-zinc-200 rounded-2xl p-8 text-center space-y-2 hover:border-emerald-500 transition-colors cursor-pointer bg-zinc-50 group">
-              <Upload className="mx-auto text-zinc-400 group-hover:text-emerald-600 transition-colors" size={32} />
-              <p className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Upload Photo</p>
-              <p className="text-[10px] text-zinc-400">JPG, PNG (max. 5MB)</p>
+            <div className="space-y-3">
+              <label className="border-2 border-dashed border-zinc-200 rounded-2xl p-8 text-center space-y-2 hover:border-emerald-500 transition-colors cursor-pointer bg-zinc-50 group block">
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0] ?? null;
+                    if (!file) return;
+                    setError('');
+                    try {
+                      await uploadImage(file);
+                    } catch (err: any) {
+                      setError(err.message || 'Failed to upload image');
+                    }
+                  }}
+                />
+                <Upload className="mx-auto text-zinc-400 group-hover:text-emerald-600 transition-colors" size={32} />
+                <p className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Upload Photo</p>
+                <p className="text-[10px] text-zinc-400">JPG, PNG, WEBP (max. 5MB)</p>
+                {imageFile ? (
+                  <p className="text-[10px] text-zinc-500 font-medium flex items-center justify-center gap-1.5">
+                    <CheckCircle2 size={14} className="text-emerald-600" /> Uploaded: {imageFile.name}
+                  </p>
+                ) : null}
+              </label>
+
+              {isUploading ? (
+                <div className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Uploading...</div>
+              ) : image ? (
+                <div className="p-3 bg-zinc-50 border border-zinc-200 rounded-2xl space-y-2">
+                  <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Preview</p>
+                  <div className="relative w-full h-40 rounded-xl overflow-hidden border border-zinc-200 bg-white">
+                    <Image src={image} alt="Uploaded product" fill className="object-cover" referrerPolicy="no-referrer" />
+                  </div>
+                </div>
+              ) : null}
             </div>
             
             <div className="p-4 bg-amber-50 border border-amber-100 rounded-2xl flex gap-3 text-amber-700">
@@ -150,7 +227,7 @@ export default function CreateProductPage() {
 
           <button 
             type="submit"
-            disabled={isLoading}
+            disabled={isLoading || isUploading || !image}
             className="w-full py-4 bg-zinc-900 text-white rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-zinc-800 transition-all shadow-lg active:scale-95 disabled:opacity-70"
           >
             {isLoading ? <Loader2 className="animate-spin" size={20} /> : <><Save size={20} /> Publish Product</>}

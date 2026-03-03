@@ -6,14 +6,22 @@ import { Store, Mail, Lock, ArrowLeft, Loader2, Upload, FileText } from 'lucide-
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
+import { uploadToPublicBucket } from '@/lib/storage';
+import { Modal } from '@/components/ui/modal';
 
 export default function RegisterVendorPage() {
   const [isLoading, setIsLoading] = useState(false);
+  const [isUploadingDocs, setIsUploadingDocs] = useState(false);
   const [shopName, setShopName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [docs, setDocs] = useState<File[]>([]);
   const [error, setError] = useState('');
   const router = useRouter();
+
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [infoTitle, setInfoTitle] = useState('');
+  const [infoMessage, setInfoMessage] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,9 +44,37 @@ export default function RegisterVendorPage() {
 
       if (signUpError) throw signUpError;
 
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      const userId = sessionData.session?.user?.id;
+
+      if (userId && docs.length > 0) {
+        setIsUploadingDocs(true);
+        try {
+          const rows: { vendor_id: string; doc_type: string; file_url: string }[] = [];
+          for (const file of docs) {
+            const { publicUrl } = await uploadToPublicBucket({
+              bucket: 'vendor-docs',
+              pathPrefix: `vendors/${userId}`,
+              file,
+            });
+            rows.push({ vendor_id: userId, doc_type: 'VERIFICATION', file_url: publicUrl });
+          }
+
+          const { error: insertDocsError } = await supabase.from('vendor_verification_documents').insert(rows);
+          if (insertDocsError) throw insertDocsError;
+        } finally {
+          setIsUploadingDocs(false);
+        }
+      }
+
       router.push('/verification/pending');
     } catch (err: any) {
-      setError(err.message || 'Failed to create vendor account');
+      const msg = err.message || 'Failed to create vendor account';
+      setError(msg);
+      setInfoTitle('Error');
+      setInfoMessage(msg);
+      setInfoOpen(true);
     } finally {
       setIsLoading(false);
     }
@@ -46,6 +82,23 @@ export default function RegisterVendorPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-zinc-50">
+      <Modal
+        open={infoOpen}
+        title={infoTitle}
+        onClose={() => setInfoOpen(false)}
+        footer={
+          <button
+            type="button"
+            onClick={() => setInfoOpen(false)}
+            className="px-5 py-2.5 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all"
+          >
+            Close
+          </button>
+        }
+      >
+        <p className="text-sm text-zinc-600 leading-relaxed">{infoMessage}</p>
+      </Modal>
+
       <motion.div 
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -115,16 +168,29 @@ export default function RegisterVendorPage() {
 
           <div className="space-y-2">
             <label className="text-sm font-semibold text-zinc-700 ml-1">Verification Documents (ID/Business License)</label>
-            <div className="border-2 border-dashed border-zinc-200 rounded-2xl p-8 text-center space-y-2 hover:border-zinc-400 transition-colors cursor-pointer bg-zinc-50">
+            <label className="border-2 border-dashed border-zinc-200 rounded-2xl p-8 text-center space-y-2 hover:border-zinc-400 transition-colors cursor-pointer bg-zinc-50 block">
+              <input
+                type="file"
+                multiple
+                accept="application/pdf,image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  setDocs(files);
+                }}
+              />
               <Upload className="mx-auto text-zinc-400" size={32} />
-              <p className="text-sm text-zinc-500 font-medium">Click to upload or drag and drop</p>
+              <p className="text-sm text-zinc-500 font-medium">Click to upload</p>
               <p className="text-xs text-zinc-400">PDF, JPG or PNG (max. 10MB)</p>
-            </div>
+              {docs.length > 0 ? (
+                <p className="text-xs text-zinc-500 font-medium">{docs.length} file(s) selected</p>
+              ) : null}
+            </label>
           </div>
 
           <button 
             type="submit"
-            disabled={isLoading}
+            disabled={isLoading || isUploadingDocs}
             className="w-full py-4 bg-zinc-900 text-white rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-zinc-800 transition-all shadow-lg active:scale-95 disabled:opacity-70"
           >
             {isLoading ? <Loader2 className="animate-spin" size={20} /> : 'Create Vendor Account'}

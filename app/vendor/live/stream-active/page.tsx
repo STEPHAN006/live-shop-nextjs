@@ -23,10 +23,14 @@ import { useAuth } from '@/hooks/use-auth';
 import { io, Socket } from 'socket.io-client';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
+import { Modal } from '@/components/ui/modal';
+import { useSearchParams } from 'next/navigation';
 
 export default function VendorLiveStreamPage() {
   const { user } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const streamId = searchParams.get('id') ?? 'live-session';
   const [comments, setComments] = useState<any[]>([]);
   const [liveProductIds, setLiveProductIds] = useState<string[]>([]);
   const [isMicOn, setIsMicOn] = useState(true);
@@ -35,14 +39,21 @@ export default function VendorLiveStreamPage() {
   const [viewCount, setViewCount] = useState(124);
   const [likeCount, setLikeCount] = useState(45);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const peerConnectionsRef = useRef<Record<string, RTCPeerConnection>>({});
   const commentsEndRef = useRef<HTMLDivElement>(null);
+
+  const [endOpen, setEndOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [infoTitle, setInfoTitle] = useState('');
+  const [infoMessage, setInfoMessage] = useState('');
 
   useEffect(() => {
     const newSocket = io();
     socketRef.current = newSocket;
 
-    const videoId = 'live-session-' + Date.now();
-    newSocket.emit('join-video', videoId);
+    newSocket.emit('join-video', streamId);
+    newSocket.emit('broadcaster', streamId);
 
     newSocket.on('new-comment', (comment) => {
       setComments(prev => [...prev, comment]);
@@ -53,10 +64,83 @@ export default function VendorLiveStreamPage() {
       setViewCount(prev => prev + Math.floor(Math.random() * 5));
     }, 5000);
 
+    newSocket.on('watcher', async ({ watcherId }: { streamId: string; watcherId: string }) => {
+      const stream = localStreamRef.current;
+      if (!stream) return;
+
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+      });
+
+      peerConnectionsRef.current[watcherId] = pc;
+
+      for (const track of stream.getTracks()) {
+        pc.addTrack(track, stream);
+      }
+
+      pc.onicecandidate = (event) => {
+        if (!event.candidate) return;
+        newSocket.emit('candidate', { to: watcherId, candidate: event.candidate, streamId });
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      newSocket.emit('offer', { streamId, watcherId, sdp: offer });
+    });
+
+    newSocket.on('answer', async ({ watcherId, sdp }: { streamId: string; watcherId: string; sdp: any }) => {
+      const pc = peerConnectionsRef.current[watcherId];
+      if (!pc) return;
+      await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    });
+
+    newSocket.on('candidate', async ({ from, candidate }: { from: string; candidate: any }) => {
+      const pc = peerConnectionsRef.current[from];
+      if (!pc) return;
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch {
+        // ignore
+      }
+    });
+
     return () => {
+      for (const pc of Object.values(peerConnectionsRef.current)) {
+        try {
+          pc.close();
+        } catch {
+          // ignore
+        }
+      }
+      peerConnectionsRef.current = {};
+
+      if (localStreamRef.current) {
+        for (const t of localStreamRef.current.getTracks()) t.stop();
+        localStreamRef.current = null;
+      }
+
       newSocket.disconnect();
       clearInterval(interval);
     };
+  }, [streamId]);
+
+  useEffect(() => {
+    const start = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        localStreamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play().catch(() => undefined);
+        }
+      } catch (err: any) {
+        setInfoTitle('Error');
+        setInfoMessage(err.message || 'Failed to access camera/microphone');
+        setInfoOpen(true);
+      }
+    };
+
+    start();
   }, []);
 
   useEffect(() => {
@@ -69,37 +153,76 @@ export default function VendorLiveStreamPage() {
       : [...liveProductIds, id];
     
     setLiveProductIds(newIds);
-    socketRef.current?.emit('update-live-products', { videoId: 'live-session', productIds: newIds });
+    socketRef.current?.emit('update-live-products', { videoId: streamId, productIds: newIds });
   };
 
   const endStream = () => {
-    if (confirm('Are you sure you want to end the live stream?')) {
-      router.push('/vendor/dashboard');
-    }
+    setEndOpen(true);
   };
 
   return (
     <div className="h-[calc(100vh-160px)] flex flex-col lg:flex-row gap-6">
+      <Modal
+        open={infoOpen}
+        title={infoTitle}
+        onClose={() => setInfoOpen(false)}
+        footer={
+          <button
+            type="button"
+            onClick={() => setInfoOpen(false)}
+            className="px-5 py-2.5 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all"
+          >
+            Close
+          </button>
+        }
+      >
+        <p className="text-sm text-zinc-600 leading-relaxed">{infoMessage}</p>
+      </Modal>
+
+      <Modal
+        open={endOpen}
+        title="End live stream"
+        onClose={() => setEndOpen(false)}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setEndOpen(false)}
+              className="px-5 py-2.5 bg-white border border-zinc-200 text-zinc-900 rounded-xl text-xs font-bold hover:bg-zinc-50 transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEndOpen(false);
+                router.push('/vendor/dashboard');
+              }}
+              className="px-5 py-2.5 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 transition-all"
+            >
+              End stream
+            </button>
+          </>
+        }
+      >
+        <p className="text-sm text-zinc-600 leading-relaxed">Your viewers will be disconnected.</p>
+      </Modal>
+
       {/* Main Stream View */}
       <div className="flex-grow flex flex-col gap-6 min-w-0">
         <div className="relative flex-grow bg-zinc-900 rounded-3xl overflow-hidden shadow-2xl border border-zinc-800">
-          {/* Mock Camera Feed */}
-          <div className="absolute inset-0 flex items-center justify-center bg-zinc-800">
+          <div className="absolute inset-0 bg-black">
+            <video ref={videoRef} muted playsInline className="w-full h-full object-cover" />
             {!isCamOn ? (
-              <div className="text-center space-y-4">
-                <div className="w-20 h-20 rounded-full bg-zinc-700 flex items-center justify-center mx-auto text-zinc-500">
-                  <VideoOff size={40} />
-                </div>
-                <p className="text-zinc-400 font-bold">Camera is Off</p>
-              </div>
-            ) : (
-              <div className="w-full h-full bg-linear-to-br from-zinc-800 to-zinc-900 flex items-center justify-center">
-                <div className="text-center space-y-4 animate-pulse">
-                  <Radio size={64} className="text-red-600 mx-auto" />
-                  <p className="text-white font-bold text-xl tracking-widest uppercase">Broadcasting Live</p>
+              <div className="absolute inset-0 flex items-center justify-center bg-zinc-800">
+                <div className="text-center space-y-4">
+                  <div className="w-20 h-20 rounded-full bg-zinc-700 flex items-center justify-center mx-auto text-zinc-500">
+                    <VideoOff size={40} />
+                  </div>
+                  <p className="text-zinc-400 font-bold">Camera is Off</p>
                 </div>
               </div>
-            )}
+            ) : null}
           </div>
 
           {/* Overlays */}
@@ -132,7 +255,12 @@ export default function VendorLiveStreamPage() {
               {isMicOn ? <Mic size={24} /> : <MicOff size={24} />}
             </button>
             <button 
-              onClick={() => setIsCamOn(!isCamOn)}
+              onClick={() => {
+                setIsCamOn(!isCamOn);
+                const stream = localStreamRef.current;
+                const videoTrack = stream?.getVideoTracks?.()[0];
+                if (videoTrack) videoTrack.enabled = !isCamOn;
+              }}
               className={`p-4 rounded-xl transition-all ${isCamOn ? 'bg-white/10 text-white' : 'bg-red-600 text-white'}`}
             >
               {isCamOn ? <VideoIcon size={24} /> : <VideoOff size={24} />}

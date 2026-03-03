@@ -30,6 +30,11 @@ app.prepare().then(() => {
   io.on('connection', (socket) => {
     console.log('a user connected:', socket.id);
 
+    const broadcastersByStreamId = (io as any)._broadcastersByStreamId as Map<string, string> | undefined;
+    if (!broadcastersByStreamId) {
+      (io as any)._broadcastersByStreamId = new Map<string, string>();
+    }
+
     socket.on('join-video', (videoId) => {
       socket.join(`video-${videoId}`);
       console.log(`User ${socket.id} joined video ${videoId}`);
@@ -55,7 +60,47 @@ app.prepare().then(() => {
       io.to(`video-${data.videoId}`).emit('live-products-updated', data.productIds);
     });
 
+    // WebRTC signaling for live streams
+    socket.on('broadcaster', (streamId: string) => {
+      if (!streamId) return;
+      (io as any)._broadcastersByStreamId.set(streamId, socket.id);
+      socket.join(`live-${streamId}`);
+      console.log(`Broadcaster ${socket.id} started stream ${streamId}`);
+    });
+
+    socket.on('watcher', (streamId: string) => {
+      if (!streamId) return;
+      socket.join(`live-${streamId}`);
+      const broadcasterId = (io as any)._broadcastersByStreamId.get(streamId);
+      if (broadcasterId) {
+        io.to(broadcasterId).emit('watcher', { streamId, watcherId: socket.id });
+      }
+    });
+
+    socket.on('offer', (payload: { streamId: string; watcherId: string; sdp: any }) => {
+      if (!payload?.watcherId) return;
+      io.to(payload.watcherId).emit('offer', { streamId: payload.streamId, sdp: payload.sdp, broadcasterId: socket.id });
+    });
+
+    socket.on('answer', (payload: { streamId: string; broadcasterId: string; sdp: any }) => {
+      if (!payload?.broadcasterId) return;
+      io.to(payload.broadcasterId).emit('answer', { streamId: payload.streamId, sdp: payload.sdp, watcherId: socket.id });
+    });
+
+    socket.on('candidate', (payload: { to: string; candidate: any; streamId?: string }) => {
+      if (!payload?.to) return;
+      io.to(payload.to).emit('candidate', { from: socket.id, candidate: payload.candidate, streamId: payload.streamId });
+    });
+
     socket.on('disconnect', () => {
+      // Cleanup if broadcaster
+      const map: Map<string, string> = (io as any)._broadcastersByStreamId;
+      for (const [streamId, broadcasterId] of map.entries()) {
+        if (broadcasterId === socket.id) {
+          map.delete(streamId);
+          io.to(`live-${streamId}`).emit('stream-ended', { streamId });
+        }
+      }
       console.log('user disconnected');
     });
   });

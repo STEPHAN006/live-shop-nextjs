@@ -7,6 +7,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
 import { useAuth } from '@/hooks/use-auth';
+import { Modal } from '@/components/ui/modal';
 
 type DbProduct = {
   id: string;
@@ -22,6 +23,20 @@ export default function VendorProductsPage() {
   const [products, setProducts] = useState<DbProduct[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [query, setQuery] = useState('');
+
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [infoTitle, setInfoTitle] = useState('');
+  const [infoMessage, setInfoMessage] = useState('');
+
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmProductId, setConfirmProductId] = useState<string | null>(null);
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [editProductId, setEditProductId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editPrice, setEditPrice] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
 
   useEffect(() => {
     if (isAuthLoading) return;
@@ -55,20 +70,172 @@ export default function VendorProductsPage() {
     return products.filter((p) => p.name.toLowerCase().includes(q));
   }, [products, query]);
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Delete this product?')) return;
+  const openInfo = (title: string, message: string) => {
+    setInfoTitle(title);
+    setInfoMessage(message);
+    setInfoOpen(true);
+  };
 
+  const requestDelete = (id: string) => {
+    setConfirmProductId(id);
+    setConfirmOpen(true);
+  };
+
+  const handleDelete = async (id: string) => {
     const supabase = getSupabaseBrowserClient();
     const { error } = await supabase.from('products').delete().eq('id', id);
     if (error) {
-      alert(error.message);
+      openInfo('Error', error.message);
       return;
     }
     setProducts((prev) => prev.filter((p) => p.id !== id));
   };
 
+  const requestEdit = (p: DbProduct) => {
+    setEditProductId(p.id);
+    setEditName(p.name ?? '');
+    setEditDescription(p.description ?? '');
+    setEditPrice(String(p.price ?? ''));
+    setEditOpen(true);
+  };
+
+  const saveEdit = async () => {
+    if (!editProductId) return;
+    setEditSaving(true);
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const { error } = await supabase
+        .from('products')
+        .update({
+          name: editName,
+          description: editDescription,
+          price: Number(editPrice),
+        })
+        .eq('id', editProductId);
+
+      if (error) throw error;
+
+      setProducts((prev) =>
+        prev.map((p) =>
+          p.id === editProductId
+            ? { ...p, name: editName, description: editDescription, price: Number(editPrice) }
+            : p
+        )
+      );
+      setEditOpen(false);
+      setEditProductId(null);
+    } catch (err: any) {
+      openInfo('Error', err.message || 'Failed to update product');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-8">
+      <Modal
+        open={infoOpen}
+        title={infoTitle}
+        onClose={() => setInfoOpen(false)}
+        footer={
+          <button
+            type="button"
+            onClick={() => setInfoOpen(false)}
+            className="px-5 py-2.5 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all"
+          >
+            Close
+          </button>
+        }
+      >
+        <p className="text-sm text-zinc-600 leading-relaxed">{infoMessage}</p>
+      </Modal>
+
+      <Modal
+        open={confirmOpen}
+        title="Delete product"
+        onClose={() => setConfirmOpen(false)}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setConfirmOpen(false)}
+              className="px-5 py-2.5 bg-white border border-zinc-200 text-zinc-900 rounded-xl text-xs font-bold hover:bg-zinc-50 transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                if (!confirmProductId) return;
+                setConfirmOpen(false);
+                await handleDelete(confirmProductId);
+                setConfirmProductId(null);
+              }}
+              className="px-5 py-2.5 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 transition-all"
+            >
+              Delete
+            </button>
+          </>
+        }
+      >
+        <p className="text-sm text-zinc-600 leading-relaxed">This will permanently delete the product.</p>
+      </Modal>
+
+      <Modal
+        open={editOpen}
+        title="Edit product"
+        onClose={() => setEditOpen(false)}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setEditOpen(false)}
+              className="px-5 py-2.5 bg-white border border-zinc-200 text-zinc-900 rounded-xl text-xs font-bold hover:bg-zinc-50 transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={editSaving}
+              onClick={saveEdit}
+              className="px-5 py-2.5 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all disabled:opacity-60"
+            >
+              Save
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Name</p>
+            <input
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              className="w-full px-4 py-2.5 bg-white border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/5 focus:border-zinc-900 transition-all"
+            />
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Description</p>
+            <textarea
+              rows={4}
+              value={editDescription}
+              onChange={(e) => setEditDescription(e.target.value)}
+              className="w-full px-4 py-2.5 bg-white border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/5 focus:border-zinc-900 transition-all resize-none"
+            />
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Price</p>
+            <input
+              type="number"
+              step="0.01"
+              value={editPrice}
+              onChange={(e) => setEditPrice(e.target.value)}
+              className="w-full px-4 py-2.5 bg-white border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/5 focus:border-zinc-900 transition-all"
+            />
+          </div>
+        </div>
+      </Modal>
+
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-zinc-900 tracking-tight">Product Catalog</h1>
@@ -113,7 +280,7 @@ export default function VendorProductsPage() {
               <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button 
                   type="button"
-                  onClick={() => alert('Not implemented')}
+                  onClick={() => requestEdit(product)}
                   className="p-2 bg-white/90 backdrop-blur-md text-zinc-900 rounded-xl shadow-lg hover:bg-white transition-all"
                 >
                   <MoreVertical size={18} />
@@ -132,14 +299,14 @@ export default function VendorProductsPage() {
                 <div className="flex gap-2">
                   <button 
                     type="button"
-                    onClick={() => alert('Not implemented')}
+                    onClick={() => requestEdit(product)}
                     className="p-2.5 bg-zinc-50 text-zinc-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all border border-zinc-100"
                   >
                     <Edit2 size={16} />
                   </button>
                   <button 
                     type="button"
-                    onClick={() => handleDelete(product.id)}
+                    onClick={() => requestDelete(product.id)}
                     className="p-2.5 bg-zinc-50 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all border border-zinc-100"
                   >
                     <Trash2 size={16} />
