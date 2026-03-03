@@ -61,7 +61,7 @@ export default function BuyerProfilePage() {
                 icon={<ShieldCheck className="text-purple-600" />}
                 title="Security"
                 description="Change password and 2FA settings"
-                href="#"
+                href="/buyer/profile/security"
               />
             </div>
           </div>

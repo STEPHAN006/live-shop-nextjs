@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Radio, 
@@ -8,17 +8,13 @@ import {
   Heart, 
   MessageCircle, 
   ShoppingBag, 
-  X, 
   Plus,
-  Send,
   Eye,
-  Settings,
   Mic,
   Video as VideoIcon,
   MicOff,
   VideoOff
 } from 'lucide-react';
-import { MOCK_PRODUCTS } from '@/lib/data';
 import { useAuth } from '@/hooks/use-auth';
 import { io, Socket } from 'socket.io-client';
 import Image from 'next/image';
@@ -26,11 +22,25 @@ import { useRouter } from 'next/navigation';
 import { Modal } from '@/components/ui/modal';
 import { useSearchParams } from 'next/navigation';
 
+import { getSupabaseBrowserClient } from '@/lib/supabase';
+
+type DbProduct = {
+  id: string;
+  name: string;
+  price: number;
+  image: string;
+};
+
 export default function VendorLiveStreamPage() {
   const { user } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const streamId = searchParams.get('id') ?? 'live-session';
+
+  const supabase = useMemo(() => getSupabaseBrowserClient(), []);
+  const [products, setProducts] = useState<DbProduct[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState(true);
+
   const [comments, setComments] = useState<any[]>([]);
   const [liveProductIds, setLiveProductIds] = useState<string[]>([]);
   const [isMicOn, setIsMicOn] = useState(true);
@@ -47,6 +57,29 @@ export default function VendorLiveStreamPage() {
   const [infoOpen, setInfoOpen] = useState(false);
   const [infoTitle, setInfoTitle] = useState('');
   const [infoMessage, setInfoMessage] = useState('');
+
+  useEffect(() => {
+    if (!user) return;
+    const run = async () => {
+      setLoadingProducts(true);
+      try {
+        const { data, error } = await supabase
+          .from('products')
+          .select('id, name, price, image')
+          .eq('vendor_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(50);
+        if (error) throw error;
+        setProducts((data ?? []) as DbProduct[]);
+      } catch (e) {
+        console.error(e);
+        setProducts([]);
+      } finally {
+        setLoadingProducts(false);
+      }
+    };
+    run();
+  }, [supabase, user]);
 
   useEffect(() => {
     const newSocket = io();
@@ -235,9 +268,6 @@ export default function VendorLiveStreamPage() {
           </div>
 
           <div className="absolute top-6 right-6 flex items-center gap-2">
-            <button className="p-2.5 bg-black/40 backdrop-blur-md text-white rounded-xl border border-white/10 hover:bg-black/60 transition-all">
-              <Settings size={20} />
-            </button>
             <button 
               onClick={endStream}
               className="px-6 py-2.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-600/20 active:scale-95"
@@ -277,7 +307,9 @@ export default function VendorLiveStreamPage() {
             <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest">{liveProductIds.length} Active</span>
           </div>
           <div className="flex gap-4 overflow-x-auto pb-2 custom-scrollbar">
-            {MOCK_PRODUCTS.map(product => (
+            {loadingProducts ? (
+              <div className="text-zinc-400">Loading products...</div>
+            ) : products.map(product => (
               <button 
                 key={product.id}
                 onClick={() => toggleProduct(product.id)}
@@ -324,10 +356,10 @@ export default function VendorLiveStreamPage() {
           {comments.map((c) => (
             <div key={c.id} className="flex gap-3">
               <div className="w-8 h-8 rounded-lg bg-zinc-200 flex items-center justify-center font-bold text-[10px] shrink-0">
-                {c.userName[0]}
+                {(c.user_name ?? c.userName ?? '?')?.[0] ?? '?'}
               </div>
               <div className="space-y-1">
-                <p className="text-xs font-bold text-zinc-900">{c.userName}</p>
+                <p className="text-xs font-bold text-zinc-900">{c.user_name ?? c.userName ?? 'User'}</p>
                 <div className="px-3 py-2 bg-white border border-zinc-100 rounded-2xl rounded-tl-none shadow-sm inline-block">
                   <p className="text-sm text-zinc-600">{c.text}</p>
                 </div>

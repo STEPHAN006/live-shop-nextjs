@@ -47,6 +47,15 @@ type DbProduct = {
   image: string;
 };
 
+type DbVideoComment = {
+  id: string;
+  video_id: string;
+  user_id: string;
+  user_name: string;
+  text: string;
+  created_at: string;
+};
+
 export default function VideoDetailPage() {
   const { id } = useParams();
   const router = useRouter();
@@ -57,13 +66,18 @@ export default function VideoDetailPage() {
   const [vendor, setVendor] = useState<DbProfile | null>(null);
   const [products, setProducts] = useState<DbProduct[]>([]);
 
-  const [comments, setComments] = useState<any[]>([]);
+  const [comments, setComments] = useState<DbVideoComment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [isLiked, setIsLiked] = useState(false);
+  const [likeCount, setLikeCount] = useState(0);
   const socketRef = useRef<Socket | null>(null);
   const [liveProductIds, setLiveProductIds] = useState<string[]>([]);
   const [showPurchaseSuccess, setShowPurchaseSuccess] = useState(false);
   const commentsEndRef = useRef<HTMLDivElement>(null);
+
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followBusy, setFollowBusy] = useState(false);
+  const [likeBusy, setLikeBusy] = useState(false);
 
   useEffect(() => {
     const videoId = String(id ?? '');
@@ -92,6 +106,7 @@ export default function VideoDetailPage() {
         }
 
         setVideo(v as DbVideo);
+        setLikeCount(Number((v as any).likes ?? 0));
         setLiveProductIds(((v as any).attached_product_ids ?? []) as string[]);
 
         const { data: prof, error: pErr } = await supabase
@@ -102,6 +117,31 @@ export default function VideoDetailPage() {
 
         if (pErr) throw pErr;
         setVendor((prof ?? null) as DbProfile | null);
+
+        if (user) {
+          const [{ data: likeRow, error: likeErr }, { data: followRow, error: fErr }] = await Promise.all([
+            supabase
+              .from('video_likes')
+              .select('id')
+              .eq('user_id', user.id)
+              .eq('video_id', videoId)
+              .maybeSingle(),
+            supabase
+              .from('vendor_follows')
+              .select('id')
+              .eq('follower_id', user.id)
+              .eq('vendor_id', String((v as any).vendor_id))
+              .maybeSingle(),
+          ]);
+
+          if (likeErr) throw likeErr;
+          if (fErr) throw fErr;
+          setIsLiked(!!likeRow);
+          setIsFollowing(!!followRow);
+        } else {
+          setIsLiked(false);
+          setIsFollowing(false);
+        }
 
         const { data: links, error: lErr } = await supabase
           .from('video_products')
@@ -123,6 +163,15 @@ export default function VideoDetailPage() {
 
         if (prodErr) throw prodErr;
         setProducts((prods ?? []) as DbProduct[]);
+
+        const { data: existingComments, error: cErr } = await supabase
+          .from('video_comments')
+          .select('id, video_id, user_id, user_name, text, created_at')
+          .eq('video_id', videoId)
+          .order('created_at', { ascending: true });
+
+        if (cErr) throw cErr;
+        setComments((existingComments ?? []) as DbVideoComment[]);
       } finally {
         setIsLoading(false);
       }
@@ -147,8 +196,12 @@ export default function VideoDetailPage() {
 
     newSocket.emit('join-video', videoId);
 
-    newSocket.on('new-comment', (comment) => {
-      setComments(prev => [...prev, comment]);
+    newSocket.on('new-comment', (comment: DbVideoComment) => {
+      if (!comment?.id) return;
+      setComments(prev => {
+        if (prev.some(c => c.id === comment.id)) return prev;
+        return [...prev, comment];
+      });
     });
 
     newSocket.on('live-products-updated', (productIds) => {
@@ -177,23 +230,156 @@ export default function VideoDetailPage() {
 
   if (!video) return <div className="max-w-6xl mx-auto">Video not found</div>;
 
-  const handleSendComment = (e: React.FormEvent) => {
+  const handleSendComment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newComment.trim() || !socketRef.current || !user) return;
+    if (!newComment.trim() || !user) return;
 
-    socketRef.current.emit('send-comment', {
-      videoId: String(id),
-      userId: user.id,
-      userName: user.name,
-      text: newComment
-    });
-    setNewComment('');
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const payload = {
+        video_id: String(id),
+        user_id: user.id,
+        user_name: user.name,
+        text: newComment.trim(),
+      };
+
+      const { data: inserted, error } = await supabase
+        .from('video_comments')
+        .insert(payload)
+        .select('id, video_id, user_id, user_name, text, created_at')
+        .single();
+
+      if (error) throw error;
+
+      const comment = inserted as DbVideoComment;
+      setComments(prev => [...prev, comment]);
+
+      if (socketRef.current) {
+        socketRef.current.emit('send-comment', {
+          comment,
+        });
+      }
+
+      setNewComment('');
+    } catch (err) {
+      console.error('Failed to save comment:', err);
+    }
   };
 
-  const handlePurchase = (productId: string) => {
-    // Simulate purchase
-    setShowPurchaseSuccess(true);
-    setTimeout(() => setShowPurchaseSuccess(false), 3000);
+  const handlePurchase = async (productId: string) => {
+    if (!user) {
+      router.push('/login');
+      return;
+    }
+
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const { data: product, error: productError } = await supabase
+        .from('products')
+        .select('id, name, price, vendor_id')
+        .eq('id', productId)
+        .single();
+
+      if (productError) throw productError;
+
+      const { error: purchaseError } = await supabase
+        .from('purchases')
+        .insert({
+          buyer_id: user.id,
+          vendor_id: (product as any).vendor_id,
+          product_id: productId,
+          amount: (product as any).price,
+          status: 'completed',
+        });
+
+      if (purchaseError) throw purchaseError;
+
+      setShowPurchaseSuccess(true);
+      setTimeout(() => setShowPurchaseSuccess(false), 3000);
+    } catch (error) {
+      console.error('Error processing purchase:', error);
+    }
+  };
+
+  const handleToggleLike = async () => {
+    if (!user || !video) {
+      router.push('/login');
+      return;
+    }
+    if (likeBusy) return;
+
+    setLikeBusy(true);
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const nextLiked = !isLiked;
+      setIsLiked(nextLiked);
+      setLikeCount((c) => Math.max(0, c + (nextLiked ? 1 : -1)));
+
+      const { error } = await supabase.rpc('like_video', {
+        video_id: video.id,
+        user_id: user.id,
+      });
+
+      if (error) throw error;
+
+      const { data: refreshed, error: rErr } = await supabase
+        .from('videos')
+        .select('likes')
+        .eq('id', video.id)
+        .maybeSingle();
+      if (rErr) throw rErr;
+      if (refreshed) setLikeCount(Number((refreshed as any).likes ?? 0));
+    } catch (e) {
+      console.error('Error liking video:', e);
+    } finally {
+      setLikeBusy(false);
+    }
+  };
+
+  const handleShare = async () => {
+    if (!video) return;
+    const url = `${window.location.origin}/buyer/videos/${video.id}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: video.title, url });
+        return;
+      }
+      await navigator.clipboard.writeText(url);
+    } catch (e) {
+      console.error('Share failed:', e);
+    }
+  };
+
+  const handleToggleFollow = async () => {
+    if (!user || !video) {
+      router.push('/login');
+      return;
+    }
+    if (followBusy) return;
+
+    setFollowBusy(true);
+    try {
+      const supabase = getSupabaseBrowserClient();
+      if (isFollowing) {
+        const { error } = await supabase
+          .from('vendor_follows')
+          .delete()
+          .eq('follower_id', user.id)
+          .eq('vendor_id', video.vendor_id);
+        if (error) throw error;
+        setIsFollowing(false);
+      } else {
+        const { error } = await supabase
+          .from('vendor_follows')
+          .insert({ follower_id: user.id, vendor_id: video.vendor_id });
+        if (error) throw error;
+        setIsFollowing(true);
+      }
+    } catch (e) {
+      console.error('Follow toggle failed:', e);
+    } finally {
+      setFollowBusy(false);
+    }
   };
 
   return (
@@ -235,7 +421,8 @@ export default function VideoDetailPage() {
               </div>
               <div className="flex items-center gap-3">
                 <button 
-                  onClick={() => setIsLiked(!isLiked)}
+                  onClick={handleToggleLike}
+                  disabled={likeBusy}
                   className={`p-3 rounded-2xl border transition-all flex items-center gap-2 font-bold ${
                     isLiked 
                       ? 'bg-red-50 border-red-100 text-red-600 shadow-sm' 
@@ -243,9 +430,13 @@ export default function VideoDetailPage() {
                   }`}
                 >
                   <Heart size={20} fill={isLiked ? 'currentColor' : 'none'} />
-                  {video.likes + (isLiked ? 1 : 0)}
+                  {likeCount}
                 </button>
-                <button className="p-3 bg-zinc-50 border border-zinc-100 text-zinc-400 hover:text-zinc-900 rounded-2xl transition-all">
+                <button
+                  type="button"
+                  onClick={handleShare}
+                  className="p-3 bg-zinc-50 border border-zinc-100 text-zinc-400 hover:text-zinc-900 rounded-2xl transition-all"
+                >
                   <Share2 size={20} />
                 </button>
               </div>
@@ -261,8 +452,15 @@ export default function VideoDetailPage() {
                   <p className="text-xs text-zinc-500 font-medium">Verified Vendor</p>
                 </div>
               </div>
-              <button className="px-6 py-2.5 bg-zinc-900 text-white rounded-xl text-sm font-bold hover:bg-zinc-800 transition-all shadow-md active:scale-95">
-                Follow
+              <button
+                type="button"
+                onClick={handleToggleFollow}
+                disabled={followBusy}
+                className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all shadow-md active:scale-95 disabled:opacity-70 ${
+                  isFollowing ? 'bg-white border border-zinc-200 text-zinc-900 hover:bg-zinc-50' : 'bg-zinc-900 text-white hover:bg-zinc-800'
+                }`}
+              >
+                {isFollowing ? 'Following' : 'Follow'}
               </button>
             </div>
 
@@ -332,10 +530,10 @@ export default function VideoDetailPage() {
                   className="flex gap-3"
                 >
                   <div className="w-8 h-8 rounded-lg bg-zinc-200 flex items-center justify-center font-bold text-[10px] shrink-0">
-                    {c.userName[0]}
+                    {c.user_name?.[0] ?? '?'}
                   </div>
                   <div className="space-y-1">
-                    <p className="text-xs font-bold text-zinc-900">{c.userName}</p>
+                    <p className="text-xs font-bold text-zinc-900">{c.user_name}</p>
                     <div className="px-3 py-2 bg-white border border-zinc-100 rounded-2xl rounded-tl-none shadow-sm inline-block">
                       <p className="text-sm text-zinc-600">{c.text}</p>
                     </div>

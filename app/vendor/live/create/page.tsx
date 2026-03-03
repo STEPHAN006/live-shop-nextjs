@@ -1,17 +1,55 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
-import { Radio, ShoppingBag, ArrowRight, Video, Info } from 'lucide-react';
-import { MOCK_PRODUCTS } from '@/lib/data';
+import { Radio, Info, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 
+import { getSupabaseBrowserClient } from '@/lib/supabase';
+import { useAuth } from '@/hooks/use-auth';
+
+type DbProduct = {
+  id: string;
+  name: string;
+  price: number;
+  image: string;
+};
+
 export default function CreateLiveStreamPage() {
+  const { user } = useAuth();
+  const supabase = useMemo(() => getSupabaseBrowserClient(), []);
+
   const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [isStarting, setIsStarting] = useState(false);
+  const [loadingProducts, setLoadingProducts] = useState(true);
+  const [products, setProducts] = useState<DbProduct[]>([]);
   const router = useRouter();
+
+  useEffect(() => {
+    if (!user) return;
+    const run = async () => {
+      setLoadingProducts(true);
+      try {
+        const { data, error } = await supabase
+          .from('products')
+          .select('id, name, price, image')
+          .eq('vendor_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(50);
+        if (error) throw error;
+        setProducts((data ?? []) as DbProduct[]);
+      } catch (e) {
+        console.error(e);
+        setProducts([]);
+      } finally {
+        setLoadingProducts(false);
+      }
+    };
+    run();
+  }, [supabase, user]);
 
   const toggleProduct = (id: string) => {
     setSelectedProducts(prev => 
@@ -22,9 +60,44 @@ export default function CreateLiveStreamPage() {
   const handleStart = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsStarting(true);
-    // Simulate setup
-    await new Promise(r => setTimeout(r, 1500));
-    router.push('/vendor/live/stream-active');
+    try {
+      if (!user) {
+        router.push('/login');
+        return;
+      }
+
+      const thumb = products.find(p => selectedProducts.includes(p.id))?.image ?? '';
+
+      const { data: created, error: vErr } = await supabase
+        .from('videos')
+        .insert({
+          vendor_id: user.id,
+          title,
+          description,
+          thumbnail: thumb,
+          video_url: '',
+          is_live: true,
+          likes: 0,
+          view_count: 0,
+        })
+        .select('id')
+        .single();
+
+      if (vErr) throw vErr;
+
+      const videoId = String((created as any).id);
+      if (selectedProducts.length) {
+        const links = selectedProducts.map((pid) => ({ video_id: videoId, product_id: pid }));
+        const { error: linkErr } = await supabase.from('video_products').insert(links);
+        if (linkErr) throw linkErr;
+      }
+
+      router.push(`/vendor/live/stream-active?id=${encodeURIComponent(videoId)}`);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsStarting(false);
+    }
   };
 
   return (
@@ -54,6 +127,8 @@ export default function CreateLiveStreamPage() {
               <textarea 
                 rows={4}
                 placeholder="Tell your viewers what this stream is about..."
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
                 className="w-full px-6 py-4 bg-zinc-50 border border-zinc-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all resize-none"
               />
             </div>
@@ -73,7 +148,9 @@ export default function CreateLiveStreamPage() {
             </div>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {MOCK_PRODUCTS.map((product) => (
+              {loadingProducts ? (
+                <div className="col-span-2 text-center text-zinc-400 py-10">Loading products...</div>
+              ) : products.map((product) => (
                 <div 
                   key={product.id}
                   onClick={() => toggleProduct(product.id)}
@@ -137,8 +214,4 @@ export default function CreateLiveStreamPage() {
       </form>
     </div>
   );
-}
-
-function Loader2({ className, size }: { className?: string, size?: number }) {
-  return <div className={`border-2 border-white/30 border-t-white rounded-full animate-spin ${className}`} style={{ width: size, height: size }}></div>;
 }

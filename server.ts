@@ -46,13 +46,26 @@ app.prepare().then(() => {
     });
 
     socket.on('send-comment', (data) => {
-      // data: { videoId, userId, userName, text }
+      // New format (preferred): { comment: { id, video_id, user_id, user_name, text, created_at } }
+      // Legacy format (fallback): { videoId, userId, userName, text }
+      const incoming = (data as any)?.comment;
+      if (incoming?.id && incoming?.video_id) {
+        io.to(`video-${incoming.video_id}`).emit('new-comment', incoming);
+        return;
+      }
+
+      const videoId = (data as any)?.videoId;
+      if (!videoId) return;
+
       const comment = {
         id: Math.random().toString(36).substr(2, 9),
-        ...data,
-        createdAt: new Date().toISOString()
+        video_id: videoId,
+        user_id: (data as any)?.userId,
+        user_name: (data as any)?.userName,
+        text: (data as any)?.text,
+        created_at: new Date().toISOString(),
       };
-      io.to(`video-${data.videoId}`).emit('new-comment', comment);
+      io.to(`video-${videoId}`).emit('new-comment', comment);
     });
 
     socket.on('update-live-products', (data) => {

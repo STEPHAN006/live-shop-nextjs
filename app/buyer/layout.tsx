@@ -32,8 +32,7 @@ export default function BuyerLayout({ children }: { children: React.ReactNode })
 
   const navItems = [
     { icon: <Home size={20} />, label: 'Feed', href: '/buyer/feed' },
-    { icon: <Users size={20} />, label: 'Following', href: '/buyer/feed/following' },
-    { icon: <Video size={20} />, label: 'All Videos', href: '/buyer/videos' },
+    { icon: <Video size={20} />, label: 'Catalogue', href: '/buyer/videos' },
     { icon: <CreditCard size={20} />, label: 'Purchases', href: '/buyer/purchases' },
     { icon: <User size={20} />, label: 'Profile', href: '/buyer/profile' },
   ];
