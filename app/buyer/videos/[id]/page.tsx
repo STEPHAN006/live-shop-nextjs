@@ -1,7 +1,6 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { MOCK_VIDEOS, MOCK_USERS, MOCK_PRODUCTS } from '@/lib/data';
 import { useAuth } from '@/hooks/use-auth';
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
@@ -19,29 +18,134 @@ import {
 } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { getSupabaseBrowserClient } from '@/lib/supabase';
+
+type DbVideo = {
+  id: string;
+  vendor_id: string;
+  title: string;
+  description: string;
+  thumbnail: string;
+  video_url: string;
+  is_live: boolean;
+  likes: number;
+  view_count: number;
+  attached_product_ids: string[];
+  created_at: string;
+};
+
+type DbProfile = {
+  id: string;
+  name: string;
+  avatar: string | null;
+};
+
+type DbProduct = {
+  id: string;
+  name: string;
+  price: number;
+  image: string;
+};
 
 export default function VideoDetailPage() {
   const { id } = useParams();
   const router = useRouter();
   const { user } = useAuth();
-  const video = MOCK_VIDEOS.find(v => v.id === id);
-  const vendor = MOCK_USERS.find(u => u.id === video?.vendorId);
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [video, setVideo] = useState<DbVideo | null>(null);
+  const [vendor, setVendor] = useState<DbProfile | null>(null);
+  const [products, setProducts] = useState<DbProduct[]>([]);
+
   const [comments, setComments] = useState<any[]>([]);
   const [newComment, setNewComment] = useState('');
   const [isLiked, setIsLiked] = useState(false);
   const socketRef = useRef<Socket | null>(null);
-  const [liveProductIds, setLiveProductIds] = useState<string[]>(video?.attachedProductIds || []);
+  const [liveProductIds, setLiveProductIds] = useState<string[]>([]);
   const [showPurchaseSuccess, setShowPurchaseSuccess] = useState(false);
   const commentsEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!video) return;
+    const videoId = String(id ?? '');
+    if (!videoId) return;
+
+    const load = async () => {
+      setIsLoading(true);
+      try {
+        const supabase = getSupabaseBrowserClient();
+
+        const { data: v, error: vErr } = await supabase
+          .from('videos')
+          .select(
+            'id, vendor_id, title, description, thumbnail, video_url, is_live, likes, view_count, attached_product_ids, created_at'
+          )
+          .eq('id', videoId)
+          .maybeSingle();
+
+        if (vErr) throw vErr;
+        if (!v) {
+          setVideo(null);
+          setVendor(null);
+          setProducts([]);
+          setLiveProductIds([]);
+          return;
+        }
+
+        setVideo(v as DbVideo);
+        setLiveProductIds(((v as any).attached_product_ids ?? []) as string[]);
+
+        const { data: prof, error: pErr } = await supabase
+          .from('profiles')
+          .select('id, name, avatar')
+          .eq('id', (v as any).vendor_id)
+          .maybeSingle();
+
+        if (pErr) throw pErr;
+        setVendor((prof ?? null) as DbProfile | null);
+
+        const { data: links, error: lErr } = await supabase
+          .from('video_products')
+          .select('product_id')
+          .eq('video_id', videoId);
+
+        if (lErr) throw lErr;
+        const productIds = (links ?? []).map((r: any) => String(r.product_id)).filter(Boolean);
+
+        if (productIds.length === 0) {
+          setProducts([]);
+          return;
+        }
+
+        const { data: prods, error: prodErr } = await supabase
+          .from('products')
+          .select('id, name, price, image')
+          .in('id', productIds);
+
+        if (prodErr) throw prodErr;
+        setProducts((prods ?? []) as DbProduct[]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    load().catch(() => {
+      setVideo(null);
+      setVendor(null);
+      setProducts([]);
+      setLiveProductIds([]);
+      setIsLoading(false);
+    });
+  }, [id]);
+
+  useEffect(() => {
+    const videoId = String(id ?? '');
+    if (!videoId) return;
 
     // Initialize Socket.io
     const newSocket = io();
     socketRef.current = newSocket;
 
-    newSocket.emit('join-video', id);
+    newSocket.emit('join-video', videoId);
 
     newSocket.on('new-comment', (comment) => {
       setComments(prev => [...prev, comment]);
@@ -52,23 +156,33 @@ export default function VideoDetailPage() {
     });
 
     return () => {
-      newSocket.emit('leave-video', id);
+      newSocket.emit('leave-video', videoId);
       newSocket.disconnect();
     };
-  }, [id, video]);
+  }, [id]);
 
   useEffect(() => {
     commentsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [comments]);
 
-  if (!video || !vendor) return <div>Video not found</div>;
+  if (isLoading) {
+    return (
+      <div className="max-w-6xl mx-auto space-y-6">
+        <div className="flex items-center gap-2 text-sm font-bold text-zinc-500">
+          <Loader2 className="animate-spin" size={18} /> Loading...
+        </div>
+      </div>
+    );
+  }
+
+  if (!video) return <div className="max-w-6xl mx-auto">Video not found</div>;
 
   const handleSendComment = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newComment.trim() || !socketRef.current || !user) return;
 
     socketRef.current.emit('send-comment', {
-      videoId: id,
+      videoId: String(id),
       userId: user.id,
       userName: user.name,
       text: newComment
@@ -93,17 +207,17 @@ export default function VideoDetailPage() {
         <div className="lg:col-span-2 space-y-6">
           <div className="relative aspect-video bg-black rounded-3xl overflow-hidden shadow-2xl border border-zinc-200">
             <video 
-              src={video.videoUrl} 
+              src={video.video_url} 
               controls 
               autoPlay 
               className="w-full h-full object-contain"
               poster={video.thumbnail}
             />
-            {video.isLive && (
+            {video.is_live && (
               <div className="absolute top-6 left-6 flex items-center gap-3">
                 <span className="live-badge">Live</span>
                 <span className="bg-black/40 backdrop-blur-md text-white text-xs font-bold px-2 py-1 rounded-lg border border-white/10 flex items-center gap-1.5">
-                  <Eye size={14} /> {video.viewCount}
+                  <Eye size={14} /> {video.view_count}
                 </span>
               </div>
             )}
@@ -114,9 +228,9 @@ export default function VideoDetailPage() {
               <div className="space-y-2">
                 <h1 className="text-3xl font-bold text-zinc-900 tracking-tight">{video.title}</h1>
                 <div className="flex items-center gap-4 text-sm text-zinc-500 font-medium">
-                  <span>{new Date(video.createdAt).toLocaleDateString()}</span>
+                  <span>{new Date(video.created_at).toLocaleDateString()}</span>
                   <span>•</span>
-                  <span>{video.viewCount} views</span>
+                  <span>{video.view_count} views</span>
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -140,10 +254,10 @@ export default function VideoDetailPage() {
             <div className="flex items-center justify-between p-4 bg-zinc-50 rounded-2xl border border-zinc-100">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 rounded-2xl bg-zinc-900 text-white flex items-center justify-center font-bold text-lg shadow-lg">
-                  {vendor.name[0]}
+                  {(vendor?.name?.[0] ?? '?')}
                 </div>
                 <div>
-                  <p className="font-bold text-zinc-900">{vendor.name}</p>
+                  <p className="font-bold text-zinc-900">{vendor?.name ?? 'Vendor'}</p>
                   <p className="text-xs text-zinc-500 font-medium">Verified Vendor</p>
                 </div>
               </div>
@@ -168,7 +282,7 @@ export default function VideoDetailPage() {
             </div>
             <div className="p-4 space-y-4 overflow-y-auto flex-grow custom-scrollbar">
               {liveProductIds.map(pid => {
-                const product = MOCK_PRODUCTS.find(p => p.id === pid);
+                const product = products.find(p => p.id === pid);
                 if (!product) return null;
                 return (
                   <div key={pid} className="group p-3 bg-zinc-50 rounded-2xl border border-zinc-100 hover:border-zinc-300 transition-all flex gap-4 items-center">

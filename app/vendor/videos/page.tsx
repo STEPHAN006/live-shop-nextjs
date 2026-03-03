@@ -292,7 +292,7 @@ export default function VendorVideosPage() {
               />
               {video.is_live && <span className="absolute top-4 left-4 live-badge">Live</span>}
               <div className="absolute inset-0 bg-black/40 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
-                <Link href={`/buyer/videos/${video.id}`} className="p-3 bg-white text-zinc-900 rounded-2xl shadow-lg hover:scale-110 transition-all">
+                <Link href={`/vendor/videos/${video.id}`} className="p-3 bg-white text-zinc-900 rounded-2xl shadow-lg hover:scale-110 transition-all">
                   <Play fill="currentColor" size={24} />
                 </Link>
               </div>

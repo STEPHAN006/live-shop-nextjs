@@ -64,6 +64,8 @@ app.prepare().then(() => {
     socket.on('broadcaster', (streamId: string) => {
       if (!streamId) return;
       (io as any)._broadcastersByStreamId.set(streamId, socket.id);
+      (socket.data as any).isBroadcaster = true;
+      (socket.data as any).streamId = streamId;
       socket.join(`live-${streamId}`);
       console.log(`Broadcaster ${socket.id} started stream ${streamId}`);
     });
@@ -95,10 +97,30 @@ app.prepare().then(() => {
     socket.on('disconnect', () => {
       // Cleanup if broadcaster
       const map: Map<string, string> = (io as any)._broadcastersByStreamId;
-      for (const [streamId, broadcasterId] of map.entries()) {
-        if (broadcasterId === socket.id) {
-          map.delete(streamId);
-          io.to(`live-${streamId}`).emit('stream-ended', { streamId });
+      const streamId = (socket.data as any)?.streamId as string | undefined;
+      const isBroadcaster = Boolean((socket.data as any)?.isBroadcaster);
+
+      // React Strict Mode / fast reconnects can trigger a disconnect immediately after connect.
+      // Add a short grace period before notifying viewers that the stream ended.
+      if (isBroadcaster && streamId && map.get(streamId) === socket.id) {
+        map.delete(streamId);
+        setTimeout(() => {
+          const current = map.get(streamId);
+          if (!current) {
+            io.to(`live-${streamId}`).emit('stream-ended', { streamId });
+          }
+        }, 1200);
+      } else {
+        for (const [sid, broadcasterId] of map.entries()) {
+          if (broadcasterId === socket.id) {
+            map.delete(sid);
+            setTimeout(() => {
+              const current = map.get(sid);
+              if (!current) {
+                io.to(`live-${sid}`).emit('stream-ended', { streamId: sid });
+              }
+            }, 1200);
+          }
         }
       }
       console.log('user disconnected');

@@ -23,7 +23,7 @@ export default function BuyerLayout({ children }: { children: React.ReactNode })
   const pathname = usePathname();
 
   useEffect(() => {
-    if (!isLoading && (!user || user.role !== 'BUYER')) {
+    if (!isLoading && !user) {
       router.push('/login');
     }
   }, [user, isLoading, router]);
