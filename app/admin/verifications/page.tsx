@@ -4,11 +4,21 @@ import { motion } from 'motion/react';
 import { Search, Filter, ShieldCheck, ShieldAlert, CheckCircle2, XCircle, Eye, FileText, Store } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
+import { Modal } from '@/components/ui/modal';
+import { useRouter } from 'next/navigation';
 
 export default function AdminVerificationsPage() {
+  const router = useRouter();
   const [query, setQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [pendingVendors, setPendingVendors] = useState<any[]>([]);
+
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [sortBy, setSortBy] = useState<'NEWEST' | 'NAME' | 'EMAIL'>('NEWEST');
+
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [infoTitle, setInfoTitle] = useState('');
+  const [infoMessage, setInfoMessage] = useState('');
 
   useEffect(() => {
     const load = async () => {
@@ -36,24 +46,97 @@ export default function AdminVerificationsPage() {
 
   const filteredVendors = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return pendingVendors;
-    return pendingVendors.filter((v) =>
-      String(v.name ?? '').toLowerCase().includes(q) || String(v.email ?? '').toLowerCase().includes(q)
-    );
-  }, [pendingVendors, query]);
+    const list = pendingVendors.filter((v) => {
+      if (!q) return true;
+      return String(v.name ?? '').toLowerCase().includes(q) || String(v.email ?? '').toLowerCase().includes(q);
+    });
+
+    if (sortBy === 'NAME') {
+      return [...list].sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? '')));
+    }
+    if (sortBy === 'EMAIL') {
+      return [...list].sort((a, b) => String(a.email ?? '').localeCompare(String(b.email ?? '')));
+    }
+    return list;
+  }, [pendingVendors, query, sortBy]);
 
   const setVerified = async (vendorId: string, isVerified: boolean) => {
     const supabase = getSupabaseBrowserClient();
     const { error } = await supabase.from('profiles').update({ is_verified: isVerified }).eq('id', vendorId);
     if (error) {
-      alert(error.message);
+      setInfoTitle('Error');
+      setInfoMessage(error.message);
+      setInfoOpen(true);
       return;
     }
     setPendingVendors((prev) => prev.filter((v) => v.id !== vendorId));
   };
 
+  const openInfo = (title: string, message: string) => {
+    setInfoTitle(title);
+    setInfoMessage(message);
+    setInfoOpen(true);
+  };
+
   return (
     <div className="space-y-8">
+      <Modal
+        open={infoOpen}
+        title={infoTitle}
+        onClose={() => setInfoOpen(false)}
+        footer={
+          <button
+            type="button"
+            onClick={() => setInfoOpen(false)}
+            className="px-5 py-2.5 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all"
+          >
+            Close
+          </button>
+        }
+      >
+        <p className="text-sm text-zinc-600 leading-relaxed">{infoMessage}</p>
+      </Modal>
+
+      <Modal
+        open={filterOpen}
+        title="Filter verifications"
+        onClose={() => setFilterOpen(false)}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                setSortBy('NEWEST');
+                setFilterOpen(false);
+              }}
+              className="px-5 py-2.5 bg-white border border-zinc-200 text-zinc-900 rounded-xl text-xs font-bold hover:bg-zinc-50 transition-all"
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterOpen(false)}
+              className="px-5 py-2.5 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all"
+            >
+              Apply
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Sort</p>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as any)}
+            className="w-full px-4 py-2.5 bg-white border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/5 focus:border-zinc-900 transition-all"
+          >
+            <option value="NEWEST">Newest</option>
+            <option value="NAME">Name</option>
+            <option value="EMAIL">Email</option>
+          </select>
+        </div>
+      </Modal>
+
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-zinc-900 tracking-tight">Vendor Verifications</h1>
@@ -70,7 +153,11 @@ export default function AdminVerificationsPage() {
               className="pl-12 pr-4 py-2.5 bg-white border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/5 focus:border-zinc-900 transition-all w-full md:w-64"
             />
           </div>
-          <button className="p-2.5 bg-white border border-zinc-200 rounded-xl text-zinc-500 hover:text-zinc-900 transition-all shadow-sm">
+          <button
+            type="button"
+            onClick={() => setFilterOpen(true)}
+            className="p-2.5 bg-white border border-zinc-200 rounded-xl text-zinc-500 hover:text-zinc-900 transition-all shadow-sm"
+          >
             <Filter size={20} />
           </button>
         </div>
@@ -128,7 +215,7 @@ export default function AdminVerificationsPage() {
               <div className="pt-4 flex gap-4 mt-auto">
                 <button 
                   type="button"
-                  onClick={() => alert('Not implemented')}
+                  onClick={() => router.push(`/admin/vendors/${vendor.id}`)}
                   className="flex-grow py-3 bg-white border border-zinc-200 text-zinc-900 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-zinc-50 transition-all shadow-sm active:scale-95"
                 >
                   <Eye size={18} /> View Store

@@ -4,12 +4,27 @@ import { motion } from 'motion/react';
 import { Search, Filter, MoreVertical, Shield, User, Mail, ShieldCheck, ShieldAlert, Trash2, Edit2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
+import { Modal } from '@/components/ui/modal';
 
 export default function AdminUsersPage() {
   const [searchQuery, setSearchQuery] = useState('');
 
   const [isLoading, setIsLoading] = useState(true);
   const [users, setUsers] = useState<any[]>([]);
+
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [infoTitle, setInfoTitle] = useState<string>('');
+  const [infoMessage, setInfoMessage] = useState<string>('');
+
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmUserId, setConfirmUserId] = useState<string | null>(null);
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [editUser, setEditUser] = useState<any | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editRole, setEditRole] = useState('BUYER');
+  const [editVerified, setEditVerified] = useState(false);
+  const [editWallet, setEditWallet] = useState('0');
 
   useEffect(() => {
     const load = async () => {
@@ -42,18 +57,190 @@ export default function AdminUsersPage() {
   }, [users, searchQuery]);
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this user profile?')) return;
     const supabase = getSupabaseBrowserClient();
     const { error } = await supabase.from('profiles').delete().eq('id', id);
     if (error) {
-      alert(error.message);
+      setInfoTitle('Error');
+      setInfoMessage(error.message);
+      setInfoOpen(true);
       return;
     }
     setUsers((prev) => prev.filter((u) => u.id !== id));
   };
 
+  const openInfo = (title: string, message: string) => {
+    setInfoTitle(title);
+    setInfoMessage(message);
+    setInfoOpen(true);
+  };
+
+  const openEdit = (user: any) => {
+    setEditUser(user);
+    setEditName(String(user?.name ?? ''));
+    setEditRole(String(user?.role ?? 'BUYER'));
+    setEditVerified(Boolean(user?.is_verified));
+    setEditWallet(String(user?.wallet_balance ?? 0));
+    setEditOpen(true);
+  };
+
+  const saveEdit = async () => {
+    if (!editUser?.id) return;
+
+    const wallet = Number(editWallet);
+    if (!Number.isFinite(wallet)) {
+      openInfo('Invalid value', 'Wallet balance must be a number.');
+      return;
+    }
+
+    const supabase = getSupabaseBrowserClient();
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({
+        name: editName,
+        role: editRole,
+        is_verified: editVerified,
+        wallet_balance: wallet,
+      })
+      .eq('id', editUser.id)
+      .select('id, name, email, role, avatar, is_verified, wallet_balance')
+      .single();
+
+    if (error) {
+      openInfo('Error', error.message);
+      return;
+    }
+
+    setUsers((prev) => prev.map((u) => (u.id === editUser.id ? data : u)));
+    setEditOpen(false);
+    setEditUser(null);
+  };
+
+  const requestDelete = (id: string) => {
+    setConfirmUserId(id);
+    setConfirmOpen(true);
+  };
+
   return (
     <div className="space-y-8">
+      <Modal
+        open={infoOpen}
+        title={infoTitle}
+        onClose={() => setInfoOpen(false)}
+        footer={
+          <button
+            type="button"
+            onClick={() => setInfoOpen(false)}
+            className="px-5 py-2.5 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all"
+          >
+            Close
+          </button>
+        }
+      >
+        <p className="text-sm text-zinc-600 leading-relaxed">{infoMessage}</p>
+      </Modal>
+
+      <Modal
+        open={editOpen}
+        title="Edit user"
+        onClose={() => setEditOpen(false)}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setEditOpen(false)}
+              className="px-5 py-2.5 bg-white border border-zinc-200 text-zinc-900 rounded-xl text-xs font-bold hover:bg-zinc-50 transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={saveEdit}
+              className="px-5 py-2.5 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all"
+            >
+              Save
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-5">
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Name</p>
+            <input
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              className="w-full px-4 py-2.5 bg-white border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/5 focus:border-zinc-900 transition-all"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Role</p>
+              <select
+                value={editRole}
+                onChange={(e) => setEditRole(e.target.value)}
+                className="w-full px-4 py-2.5 bg-white border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/5 focus:border-zinc-900 transition-all"
+              >
+                <option value="BUYER">BUYER</option>
+                <option value="VENDOR">VENDOR</option>
+                <option value="ADMIN">ADMIN</option>
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Wallet balance</p>
+              <input
+                value={editWallet}
+                onChange={(e) => setEditWallet(e.target.value)}
+                className="w-full px-4 py-2.5 bg-white border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/5 focus:border-zinc-900 transition-all"
+              />
+            </div>
+          </div>
+
+          <label className="flex items-center gap-3 p-4 rounded-2xl bg-zinc-50 border border-zinc-100 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={editVerified}
+              onChange={(e) => setEditVerified(e.target.checked)}
+              className="accent-zinc-900"
+            />
+            <span className="text-sm font-bold text-zinc-900">Verified</span>
+          </label>
+        </div>
+      </Modal>
+
+      <Modal
+        open={confirmOpen}
+        title="Delete user"
+        onClose={() => setConfirmOpen(false)}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setConfirmOpen(false)}
+              className="px-5 py-2.5 bg-white border border-zinc-200 text-zinc-900 rounded-xl text-xs font-bold hover:bg-zinc-50 transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                if (!confirmUserId) return;
+                setConfirmOpen(false);
+                await handleDelete(confirmUserId);
+                setConfirmUserId(null);
+              }}
+              className="px-5 py-2.5 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 transition-all"
+            >
+              Delete
+            </button>
+          </>
+        }
+      >
+        <p className="text-sm text-zinc-600 leading-relaxed">
+          This will permanently delete the user profile.
+        </p>
+      </Modal>
+
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-zinc-900 tracking-tight">User Management</h1>
@@ -128,21 +315,21 @@ export default function AdminUsersPage() {
                     <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button 
                         type="button"
-                        onClick={() => alert('Not implemented')}
+                        onClick={() => openEdit(user)}
                         className="p-2 bg-zinc-50 text-zinc-400 hover:text-zinc-900 rounded-lg border border-zinc-100 transition-all"
                       >
                         <Edit2 size={16} />
                       </button>
                       <button 
                         type="button"
-                        onClick={() => handleDelete(user.id)}
+                        onClick={() => requestDelete(user.id)}
                         className="p-2 bg-zinc-50 text-zinc-400 hover:text-red-600 rounded-lg border border-zinc-100 transition-all"
                       >
                         <Trash2 size={16} />
                       </button>
                       <button 
                         type="button"
-                        onClick={() => alert('Not implemented')}
+                        onClick={() => openEdit(user)}
                         className="p-2 bg-zinc-50 text-zinc-400 hover:text-zinc-900 rounded-lg border border-zinc-100 transition-all"
                       >
                         <MoreVertical size={16} />

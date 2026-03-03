@@ -14,14 +14,21 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
+import { Modal } from '@/components/ui/modal';
+import { useRouter } from 'next/navigation';
 
 export default function AdminDashboardPage() {
+  const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [totalUsers, setTotalUsers] = useState<number>(0);
   const [totalSales, setTotalSales] = useState<number>(0);
   const [activeStreams, setActiveStreams] = useState<number>(0);
   const [openDisputes, setOpenDisputes] = useState<number>(0);
   const [pendingVerifications, setPendingVerifications] = useState<any[]>([]);
+
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [infoTitle, setInfoTitle] = useState('');
+  const [infoMessage, setInfoMessage] = useState('');
 
   useEffect(() => {
     const load = async () => {
@@ -101,18 +108,37 @@ export default function AdminDashboardPage() {
     const supabase = getSupabaseBrowserClient();
     const { error } = await supabase.from('profiles').update({ is_verified: true }).eq('id', vendorId);
     if (error) {
-      alert(error.message);
+      setInfoTitle('Error');
+      setInfoMessage(error.message);
+      setInfoOpen(true);
       return;
     }
     setPendingVerifications((prev) => prev.filter((v) => v.id !== vendorId));
   };
 
   const reviewDocs = (vendorId: string) => {
-    alert(`Not implemented: review documents for ${vendorId}`);
+    router.push(`/admin/vendors/${vendorId}`);
   };
 
   return (
     <div className="space-y-8">
+      <Modal
+        open={infoOpen}
+        title={infoTitle}
+        onClose={() => setInfoOpen(false)}
+        footer={
+          <button
+            type="button"
+            onClick={() => setInfoOpen(false)}
+            className="px-5 py-2.5 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all"
+          >
+            Close
+          </button>
+        }
+      >
+        <p className="text-sm text-zinc-600 leading-relaxed">{infoMessage}</p>
+      </Modal>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {stats.map((stat, idx) => (
           <motion.div 

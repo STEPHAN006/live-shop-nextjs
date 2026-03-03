@@ -4,12 +4,26 @@ import { motion } from 'motion/react';
 import { Search, Filter, AlertCircle, MessageCircle, MoreVertical, ShieldAlert, CheckCircle2, XCircle, Eye, User, Store } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
+import { Modal } from '@/components/ui/modal';
 
 export default function AdminDisputesPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [disputes, setDisputes] = useState<any[]>([]);
   const [profilesById, setProfilesById] = useState<Record<string, any>>({});
+
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [infoTitle, setInfoTitle] = useState('');
+  const [infoMessage, setInfoMessage] = useState('');
+
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmDisputeId, setConfirmDisputeId] = useState<string | null>(null);
+
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailDispute, setDetailDispute] = useState<any | null>(null);
+  const [detailPurchase, setDetailPurchase] = useState<any | null>(null);
+  const [detailProduct, setDetailProduct] = useState<any | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -61,22 +75,235 @@ export default function AdminDisputesPage() {
     });
   }, [disputes, profilesById, searchQuery]);
 
+  const openInfo = (title: string, message: string) => {
+    setInfoTitle(title);
+    setInfoMessage(message);
+    setInfoOpen(true);
+  };
+
+  const openDetail = async (disputeId: string) => {
+    setDetailOpen(true);
+    setDetailLoading(true);
+    setDetailDispute(null);
+    setDetailPurchase(null);
+    setDetailProduct(null);
+
+    const supabase = getSupabaseBrowserClient();
+    const { data: dispute, error: disputeError } = await supabase
+      .from('disputes')
+      .select('id, purchase_id, buyer_id, vendor_id, reason, status, created_at')
+      .eq('id', disputeId)
+      .maybeSingle();
+
+    if (disputeError || !dispute) {
+      setDetailLoading(false);
+      openInfo('Error', disputeError?.message ?? 'Dispute not found');
+      setDetailOpen(false);
+      return;
+    }
+
+    setDetailDispute(dispute);
+
+    if (dispute.purchase_id) {
+      const { data: purchase, error: purchaseError } = await supabase
+        .from('purchases')
+        .select('id, buyer_id, product_id, amount, status, created_at')
+        .eq('id', dispute.purchase_id)
+        .maybeSingle();
+
+      if (purchaseError) {
+        setDetailLoading(false);
+        openInfo('Error', purchaseError.message);
+        return;
+      }
+
+      setDetailPurchase(purchase ?? null);
+
+      if (purchase?.product_id) {
+        const { data: product, error: productError } = await supabase
+          .from('products')
+          .select('id, name, price, vendor_id')
+          .eq('id', purchase.product_id)
+          .maybeSingle();
+
+        if (productError) {
+          setDetailLoading(false);
+          openInfo('Error', productError.message);
+          return;
+        }
+
+        setDetailProduct(product ?? null);
+      }
+    }
+
+    setDetailLoading(false);
+  };
+
   const reviewEvidence = (disputeId: string) => {
-    alert(`Not implemented: review evidence for dispute ${disputeId}`);
+    openDetail(disputeId);
   };
 
   const resolveDispute = async (disputeId: string) => {
     const supabase = getSupabaseBrowserClient();
     const { error } = await supabase.from('disputes').update({ status: 'RESOLVED' }).eq('id', disputeId);
     if (error) {
-      alert(error.message);
+      openInfo('Error', error.message);
       return;
     }
     setDisputes((prev) => prev.map((d) => (d.id === disputeId ? { ...d, status: 'RESOLVED' } : d)));
+    setDetailDispute((prev: any) => (prev?.id === disputeId ? { ...prev, status: 'RESOLVED' } : prev));
+  };
+
+  const reopenDispute = async (disputeId: string) => {
+    const supabase = getSupabaseBrowserClient();
+    const { error } = await supabase.from('disputes').update({ status: 'OPEN' }).eq('id', disputeId);
+    if (error) {
+      openInfo('Error', error.message);
+      return;
+    }
+    setDisputes((prev) => prev.map((d) => (d.id === disputeId ? { ...d, status: 'OPEN' } : d)));
+    setDetailDispute((prev: any) => (prev?.id === disputeId ? { ...prev, status: 'OPEN' } : prev));
+  };
+
+  const requestResolve = (disputeId: string) => {
+    setConfirmDisputeId(disputeId);
+    setConfirmOpen(true);
   };
 
   return (
     <div className="space-y-8">
+      <Modal
+        open={infoOpen}
+        title={infoTitle}
+        onClose={() => setInfoOpen(false)}
+        footer={
+          <button
+            type="button"
+            onClick={() => setInfoOpen(false)}
+            className="px-5 py-2.5 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all"
+          >
+            Close
+          </button>
+        }
+      >
+        <p className="text-sm text-zinc-600 leading-relaxed">{infoMessage}</p>
+      </Modal>
+
+      <Modal
+        open={confirmOpen}
+        title="Resolve dispute"
+        onClose={() => setConfirmOpen(false)}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setConfirmOpen(false)}
+              className="px-5 py-2.5 bg-white border border-zinc-200 text-zinc-900 rounded-xl text-xs font-bold hover:bg-zinc-50 transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                if (!confirmDisputeId) return;
+                setConfirmOpen(false);
+                await resolveDispute(confirmDisputeId);
+                setConfirmDisputeId(null);
+              }}
+              className="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all"
+            >
+              Mark as resolved
+            </button>
+          </>
+        }
+      >
+        <p className="text-sm text-zinc-600 leading-relaxed">This will set the dispute status to RESOLVED.</p>
+      </Modal>
+
+      <Modal
+        open={detailOpen}
+        title="Dispute details"
+        onClose={() => setDetailOpen(false)}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setDetailOpen(false)}
+              className="px-5 py-2.5 bg-white border border-zinc-200 text-zinc-900 rounded-xl text-xs font-bold hover:bg-zinc-50 transition-all"
+            >
+              Close
+            </button>
+            {detailDispute?.status === 'OPEN' ? (
+              <button
+                type="button"
+                onClick={() => requestResolve(detailDispute.id)}
+                className="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all"
+              >
+                Resolve
+              </button>
+            ) : detailDispute?.status === 'RESOLVED' ? (
+              <button
+                type="button"
+                onClick={() => reopenDispute(detailDispute.id)}
+                className="px-5 py-2.5 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all"
+              >
+                Reopen
+              </button>
+            ) : null}
+          </>
+        }
+      >
+        {detailLoading ? (
+          <p className="text-sm text-zinc-600 leading-relaxed">Loading...</p>
+        ) : !detailDispute ? (
+          <p className="text-sm text-zinc-600 leading-relaxed">No data.</p>
+        ) : (
+          <div className="space-y-6">
+            <div className="space-y-1">
+              <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Dispute</p>
+              <p className="text-sm font-bold text-zinc-900">#{detailDispute.id}</p>
+              <p className="text-sm text-zinc-600 leading-relaxed">{detailDispute.reason}</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-100">
+                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Buyer</p>
+                <p className="text-sm font-bold text-zinc-900 mt-2">{profilesById[detailDispute.buyer_id]?.name ?? detailDispute.buyer_id}</p>
+              </div>
+              <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-100">
+                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Vendor</p>
+                <p className="text-sm font-bold text-zinc-900 mt-2">{profilesById[detailDispute.vendor_id]?.name ?? detailDispute.vendor_id}</p>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-white border border-zinc-200">
+              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Purchase</p>
+              {detailPurchase ? (
+                <div className="mt-3 space-y-1">
+                  <p className="text-sm font-bold text-zinc-900">#{detailPurchase.id}</p>
+                  <p className="text-sm text-zinc-600">Amount: ${Number(detailPurchase.amount ?? 0).toFixed(2)}</p>
+                  <p className="text-sm text-zinc-600">Status: {detailPurchase.status}</p>
+                </div>
+              ) : (
+                <p className="text-sm text-zinc-600 mt-2">No purchase found.</p>
+              )}
+            </div>
+
+            <div className="p-4 rounded-2xl bg-white border border-zinc-200">
+              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Product</p>
+              {detailProduct ? (
+                <div className="mt-3 space-y-1">
+                  <p className="text-sm font-bold text-zinc-900">{detailProduct.name}</p>
+                  <p className="text-sm text-zinc-600">Price: ${Number(detailProduct.price ?? 0).toFixed(2)}</p>
+                </div>
+              ) : (
+                <p className="text-sm text-zinc-600 mt-2">No product found.</p>
+              )}
+            </div>
+          </div>
+        )}
+      </Modal>
+
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-zinc-900 tracking-tight">Dispute Resolution</h1>
@@ -160,10 +387,10 @@ export default function AdminDisputesPage() {
                             type="button"
                             onClick={() => {
                               if (dispute.status === 'OPEN') {
-                                if (confirm('Mark this dispute as RESOLVED?')) resolveDispute(dispute.id);
+                                requestResolve(dispute.id);
                                 return;
                               }
-                              alert('Not implemented');
+                              openInfo('Not implemented', 'More actions are not implemented yet.');
                             }}
                             className="p-2.5 bg-zinc-50 text-zinc-400 hover:text-zinc-900 rounded-xl border border-zinc-100 transition-all"
                           >

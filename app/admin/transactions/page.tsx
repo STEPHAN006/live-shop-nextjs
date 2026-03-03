@@ -4,12 +4,17 @@ import { motion } from 'motion/react';
 import { Search, Filter, DollarSign, Download, ArrowUpRight, ArrowDownRight, CreditCard, ShoppingBag, Users, BarChart3, TrendingUp } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
+import { Modal } from '@/components/ui/modal';
 
 export default function AdminTransactionsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [purchases, setPurchases] = useState<any[]>([]);
   const [buyersById, setBuyersById] = useState<Record<string, any>>({});
+
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [minAmount, setMinAmount] = useState<string>('');
 
   useEffect(() => {
     const load = async () => {
@@ -46,12 +51,30 @@ export default function AdminTransactionsPage() {
 
   const filteredPurchases = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
+    const min = minAmount.trim() ? Number(minAmount) : null;
+    const hasMin = min !== null && Number.isFinite(min);
     if (!q) return purchases;
     return purchases.filter((p) => {
       const buyerName = String(buyersById[p.buyer_id]?.name ?? '').toLowerCase();
-      return String(p.id ?? '').toLowerCase().includes(q) || buyerName.includes(q);
+      const matchesQ = String(p.id ?? '').toLowerCase().includes(q) || buyerName.includes(q);
+      const matchesStatus = statusFilter === 'ALL' ? true : String(p.status ?? '').toUpperCase() === statusFilter;
+      const matchesMin = hasMin ? Number(p.amount ?? 0) >= (min as number) : true;
+      return matchesQ && matchesStatus && matchesMin;
     });
-  }, [buyersById, purchases, searchQuery]);
+  }, [buyersById, minAmount, purchases, searchQuery, statusFilter]);
+
+  const filteredPurchasesForTable = useMemo(() => {
+    const min = minAmount.trim() ? Number(minAmount) : null;
+    const hasMin = min !== null && Number.isFinite(min);
+    return purchases.filter((p) => {
+      const q = searchQuery.trim().toLowerCase();
+      const buyerName = String(buyersById[p.buyer_id]?.name ?? '').toLowerCase();
+      const matchesQ = !q || String(p.id ?? '').toLowerCase().includes(q) || buyerName.includes(q);
+      const matchesStatus = statusFilter === 'ALL' ? true : String(p.status ?? '').toUpperCase() === statusFilter;
+      const matchesMin = hasMin ? Number(p.amount ?? 0) >= (min as number) : true;
+      return matchesQ && matchesStatus && matchesMin;
+    });
+  }, [buyersById, minAmount, purchases, searchQuery, statusFilter]);
 
   const { totalVolume, totalFees, totalTransactions, activeWallets } = useMemo(() => {
     const total = purchases.reduce((acc, p) => acc + Number(p.amount ?? 0), 0);
@@ -113,6 +136,60 @@ export default function AdminTransactionsPage() {
 
   return (
     <div className="space-y-8">
+      <Modal
+        open={filterOpen}
+        title="Filter transactions"
+        onClose={() => setFilterOpen(false)}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                setStatusFilter('ALL');
+                setMinAmount('');
+                setFilterOpen(false);
+              }}
+              className="px-5 py-2.5 bg-white border border-zinc-200 text-zinc-900 rounded-xl text-xs font-bold hover:bg-zinc-50 transition-all"
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterOpen(false)}
+              className="px-5 py-2.5 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all"
+            >
+              Apply
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-5">
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Status</p>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full px-4 py-2.5 bg-white border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/5 focus:border-zinc-900 transition-all"
+            >
+              <option value="ALL">All</option>
+              <option value="PENDING">PENDING</option>
+              <option value="COMPLETED">COMPLETED</option>
+              <option value="REFUNDED">REFUNDED</option>
+              <option value="CANCELED">CANCELED</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Min amount</p>
+            <input
+              value={minAmount}
+              onChange={(e) => setMinAmount(e.target.value)}
+              placeholder="e.g. 50"
+              className="w-full px-4 py-2.5 bg-white border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/5 focus:border-zinc-900 transition-all"
+            />
+          </div>
+        </div>
+      </Modal>
+
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-zinc-900 tracking-tight">Financial Auditing</h1>
@@ -169,7 +246,11 @@ export default function AdminTransactionsPage() {
                 className="pl-12 pr-4 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/5 focus:border-zinc-900 transition-all w-full md:w-64"
               />
             </div>
-            <button className="p-2 bg-zinc-50 border border-zinc-200 rounded-xl text-zinc-500 hover:text-zinc-900 transition-all">
+            <button
+              type="button"
+              onClick={() => setFilterOpen(true)}
+              className="p-2 bg-zinc-50 border border-zinc-200 rounded-xl text-zinc-500 hover:text-zinc-900 transition-all"
+            >
               <Filter size={18} />
             </button>
           </div>
@@ -187,7 +268,7 @@ export default function AdminTransactionsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100">
-              {isLoading ? null : filteredPurchases.map((purchase) => {
+              {isLoading ? null : filteredPurchasesForTable.map((purchase) => {
                 const buyer = buyersById[purchase.buyer_id];
                 const amount = Number(purchase.amount ?? 0);
                 return (

@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
+import { Modal } from '@/components/ui/modal';
 
 export default function AdminVideosPage() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -13,6 +14,16 @@ export default function AdminVideosPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [videos, setVideos] = useState<any[]>([]);
   const [vendorsById, setVendorsById] = useState<Record<string, any>>({});
+
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [infoTitle, setInfoTitle] = useState('');
+  const [infoMessage, setInfoMessage] = useState('');
+
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmVideoId, setConfirmVideoId] = useState<string | null>(null);
+
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [liveFilter, setLiveFilter] = useState<'ALL' | 'LIVE_ONLY' | 'NOT_LIVE'>('ALL');
 
   useEffect(() => {
     const load = async () => {
@@ -53,33 +64,143 @@ export default function AdminVideosPage() {
 
   const filteredVideos = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return videos;
-    return videos.filter((v) => String(v.title ?? '').toLowerCase().includes(q));
-  }, [videos, searchQuery]);
+    return videos.filter((v) => {
+      const matchesQ = !q || String(v.title ?? '').toLowerCase().includes(q);
+      const matchesLive =
+        liveFilter === 'ALL'
+          ? true
+          : liveFilter === 'LIVE_ONLY'
+            ? Boolean(v.is_live)
+            : !Boolean(v.is_live);
+      return matchesQ && matchesLive;
+    });
+  }, [liveFilter, videos, searchQuery]);
 
   const handleFlag = async (id: string) => {
     const supabase = getSupabaseBrowserClient();
     const { error } = await supabase.from('videos').update({ is_live: false }).eq('id', id);
     if (error) {
-      alert(error.message);
+      setInfoTitle('Error');
+      setInfoMessage(error.message);
+      setInfoOpen(true);
       return;
     }
     setVideos((prev) => prev.map((v) => (v.id === id ? { ...v, is_live: false } : v)));
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this video?')) return;
     const supabase = getSupabaseBrowserClient();
     const { error } = await supabase.from('videos').delete().eq('id', id);
     if (error) {
-      alert(error.message);
+      setInfoTitle('Error');
+      setInfoMessage(error.message);
+      setInfoOpen(true);
       return;
     }
     setVideos((prev) => prev.filter((v) => v.id !== id));
   };
 
+  const openInfo = (title: string, message: string) => {
+    setInfoTitle(title);
+    setInfoMessage(message);
+    setInfoOpen(true);
+  };
+
+  const requestDelete = (id: string) => {
+    setConfirmVideoId(id);
+    setConfirmOpen(true);
+  };
+
   return (
     <div className="space-y-8">
+      <Modal
+        open={infoOpen}
+        title={infoTitle}
+        onClose={() => setInfoOpen(false)}
+        footer={
+          <button
+            type="button"
+            onClick={() => setInfoOpen(false)}
+            className="px-5 py-2.5 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all"
+          >
+            Close
+          </button>
+        }
+      >
+        <p className="text-sm text-zinc-600 leading-relaxed">{infoMessage}</p>
+      </Modal>
+
+      <Modal
+        open={filterOpen}
+        title="Filter videos"
+        onClose={() => setFilterOpen(false)}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                setLiveFilter('ALL');
+                setFilterOpen(false);
+              }}
+              className="px-5 py-2.5 bg-white border border-zinc-200 text-zinc-900 rounded-xl text-xs font-bold hover:bg-zinc-50 transition-all"
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterOpen(false)}
+              className="px-5 py-2.5 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all"
+            >
+              Apply
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Live status</p>
+          <select
+            value={liveFilter}
+            onChange={(e) => setLiveFilter(e.target.value as any)}
+            className="w-full px-4 py-2.5 bg-white border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/5 focus:border-zinc-900 transition-all"
+          >
+            <option value="ALL">All</option>
+            <option value="LIVE_ONLY">Live only</option>
+            <option value="NOT_LIVE">Not live</option>
+          </select>
+        </div>
+      </Modal>
+
+      <Modal
+        open={confirmOpen}
+        title="Delete video"
+        onClose={() => setConfirmOpen(false)}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setConfirmOpen(false)}
+              className="px-5 py-2.5 bg-white border border-zinc-200 text-zinc-900 rounded-xl text-xs font-bold hover:bg-zinc-50 transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                if (!confirmVideoId) return;
+                setConfirmOpen(false);
+                await handleDelete(confirmVideoId);
+                setConfirmVideoId(null);
+              }}
+              className="px-5 py-2.5 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 transition-all"
+            >
+              Delete
+            </button>
+          </>
+        }
+      >
+        <p className="text-sm text-zinc-600 leading-relaxed">This will permanently delete the video.</p>
+      </Modal>
+
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-zinc-900 tracking-tight">Content Moderation</h1>
@@ -96,7 +217,11 @@ export default function AdminVideosPage() {
               className="pl-12 pr-4 py-2.5 bg-white border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/5 focus:border-zinc-900 transition-all w-full md:w-64"
             />
           </div>
-          <button className="p-2.5 bg-white border border-zinc-200 rounded-xl text-zinc-500 hover:text-zinc-900 transition-all shadow-sm">
+          <button
+            type="button"
+            onClick={() => setFilterOpen(true)}
+            className="p-2.5 bg-white border border-zinc-200 rounded-xl text-zinc-500 hover:text-zinc-900 transition-all shadow-sm"
+          >
             <Filter size={20} />
           </button>
         </div>
@@ -160,7 +285,7 @@ export default function AdminVideosPage() {
                     </button>
                     <button 
                       type="button"
-                      onClick={() => handleDelete(video.id)}
+                      onClick={() => requestDelete(video.id)}
                       className="p-2.5 bg-zinc-50 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all border border-zinc-100" 
                       title="Delete Content"
                     >
