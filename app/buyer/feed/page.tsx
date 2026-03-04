@@ -110,14 +110,6 @@ export default function BuyerFeedPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-zinc-900 tracking-tight">Feed</h1>
-          <p className="text-zinc-500">
-            {activeTab === 'foryou' ? 'Pour toi' : 'Suivi'}
-          </p>
-        </div>
-      </div>
 
       <div className="relative max-w-sm mx-auto">
         <div className="relative p-1 rounded-2xl bg-zinc-900/5 border border-zinc-200/70 shadow-sm backdrop-blur">

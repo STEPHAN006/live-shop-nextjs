@@ -78,6 +78,7 @@ export default function VideoDetailPage() {
   const [isFollowing, setIsFollowing] = useState(false);
   const [followBusy, setFollowBusy] = useState(false);
   const [likeBusy, setLikeBusy] = useState(false);
+  const [isVertical, setIsVertical] = useState(false);
 
   useEffect(() => {
     const videoId = String(id ?? '');
@@ -384,27 +385,38 @@ export default function VideoDetailPage() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      <Link href="/buyer/feed" className="inline-flex items-center gap-2 text-sm font-bold text-zinc-500 hover:text-zinc-900 transition-colors">
+      <Link
+        href="/buyer/feed"
+        className="inline-flex items-center gap-2 text-sm font-bold text-zinc-500 hover:text-zinc-900 transition-colors"
+      >
         <ArrowLeft size={18} /> Back to Feed
       </Link>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Video Player Section */}
         <div className="lg:col-span-2 space-y-6">
-          <div className="relative aspect-video bg-black rounded-3xl overflow-hidden shadow-2xl border border-zinc-200">
-            <video 
-              src={video.video_url} 
-              controls 
-              autoPlay 
+          <div
+            className={`relative bg-black rounded-3xl overflow-hidden shadow-2xl border border-zinc-200 mx-auto w-full max-w-3xl max-h-[70vh] ${
+              isVertical ? 'aspect-[9/16]' : 'aspect-video'
+            }`}
+          >
+            <video
+              src={video.video_url}
+              controls
+              autoPlay
               className="w-full h-full object-contain"
               poster={video.thumbnail}
+              onLoadedMetadata={(e) => {
+                const el = e.currentTarget;
+                const w = Number(el.videoWidth || 0);
+                const h = Number(el.videoHeight || 0);
+                if (w && h) setIsVertical(h > w);
+              }}
             />
             {video.is_live && (
-              <div className="absolute top-6 left-6 flex items-center gap-3">
-                <span className="live-badge">Live</span>
-                <span className="bg-black/40 backdrop-blur-md text-white text-xs font-bold px-2 py-1 rounded-lg border border-white/10 flex items-center gap-1.5">
-                  <Eye size={14} /> {video.view_count}
-                </span>
+              <div className="absolute top-6 left-6 flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-full font-bold text-sm shadow-lg">
+                <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                LIVE
               </div>
             )}
           </div>
@@ -420,12 +432,12 @@ export default function VideoDetailPage() {
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <button 
+                <button
                   onClick={handleToggleLike}
                   disabled={likeBusy}
                   className={`p-3 rounded-2xl border transition-all flex items-center gap-2 font-bold ${
-                    isLiked 
-                      ? 'bg-red-50 border-red-100 text-red-600 shadow-sm' 
+                    isLiked
+                      ? 'bg-red-50 border-red-100 text-red-600 shadow-sm'
                       : 'bg-zinc-50 border-zinc-100 text-zinc-400 hover:text-zinc-900'
                   }`}
                 >
@@ -457,7 +469,9 @@ export default function VideoDetailPage() {
                 onClick={handleToggleFollow}
                 disabled={followBusy}
                 className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all shadow-md active:scale-95 disabled:opacity-70 ${
-                  isFollowing ? 'bg-white border border-zinc-200 text-zinc-900 hover:bg-zinc-50' : 'bg-zinc-900 text-white hover:bg-zinc-800'
+                  isFollowing
+                    ? 'bg-white border border-zinc-200 text-zinc-900 hover:bg-zinc-50'
+                    : 'bg-zinc-900 text-white hover:bg-zinc-800'
                 }`}
               >
                 {isFollowing ? 'Following' : 'Follow'}

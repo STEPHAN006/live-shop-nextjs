@@ -24,6 +24,37 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const router = useRouter();
   const pathname = usePathname();
 
+  if (isLoading) return null;
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-zinc-50">
+        <div className="max-w-3xl mx-auto p-6 md:p-12">
+          <div className="bg-white rounded-3xl border border-zinc-200 shadow-sm p-10 text-center space-y-4">
+            <div className="w-14 h-14 rounded-2xl bg-zinc-900 text-white flex items-center justify-center mx-auto shadow-lg">
+              <Shield size={28} />
+            </div>
+            <p className="text-xl font-bold text-zinc-900">Admin Panel</p>
+            <p className="text-sm text-zinc-500">Visitor mode is enabled. Log in to access admin tools.</p>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
+              <Link href="/login" className="px-6 py-3 bg-zinc-900 text-white rounded-2xl font-bold hover:bg-zinc-800 transition-all">
+                Log in
+              </Link>
+              <Link href="/register/role" className="px-6 py-3 bg-white border border-zinc-200 rounded-2xl font-bold text-zinc-900 hover:bg-zinc-50 transition-all">
+                Create account
+              </Link>
+            </div>
+            <div className="pt-3">
+              <Link href="/" className="text-sm font-bold text-zinc-500 hover:text-zinc-900 transition-colors">
+                Back to home
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -39,11 +70,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { id: string; title: string; description: string; href: string; kind: 'info' | 'warning' | 'success' }[]
   >([]);
 
-  useEffect(() => {
-    if (!isLoading && (!user || user.role !== 'ADMIN')) {
-      router.push('/login');
-    }
-  }, [user, isLoading, router]);
+  // Visitor mode: allow navigation without forcing auth.
 
   const performSearch = async (q: string) => {
     const supabase = getSupabaseBrowserClient();
@@ -324,22 +351,38 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </nav>
 
         <div className="p-6 border-t border-zinc-800 space-y-6">
-          <div className="flex items-center gap-3 px-4">
-            <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold shadow-lg">
-              {user.name[0]}
+          {user ? (
+            <>
+              <div className="flex items-center gap-3 px-4">
+                <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold shadow-lg">
+                  {user.name[0]}
+                </div>
+                <div className="flex-grow min-w-0">
+                  <p className="text-sm font-bold text-white truncate">{user.name}</p>
+                  <p className="text-xs text-zinc-500 truncate">Super Admin</p>
+                </div>
+              </div>
+              <button 
+                onClick={logout}
+                className="w-full flex items-center gap-3 px-4 py-3 text-zinc-500 hover:text-red-400 hover:bg-red-400/10 rounded-xl font-medium transition-all"
+              >
+                <LogOut size={20} />
+                Log Out
+              </button>
+            </>
+          ) : (
+            <div className="px-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-center space-y-3">
+              <p className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Visitor mode</p>
+              <div className="grid grid-cols-2 gap-2">
+                <Link href="/login" className="px-3 py-2 rounded-xl bg-white/10 border border-white/10 text-xs font-bold text-white hover:bg-white/15 transition-all">
+                  Log in
+                </Link>
+                <Link href="/register/role" className="px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 transition-all">
+                  Sign up
+                </Link>
+              </div>
             </div>
-            <div className="flex-grow min-w-0">
-              <p className="text-sm font-bold text-white truncate">{user.name}</p>
-              <p className="text-xs text-zinc-500 truncate">Super Admin</p>
-            </div>
-          </div>
-          <button 
-            onClick={logout}
-            className="w-full flex items-center gap-3 px-4 py-3 text-zinc-500 hover:text-red-400 hover:bg-red-400/10 rounded-xl font-medium transition-all"
-          >
-            <LogOut size={20} />
-            Log Out
-          </button>
+          )}
         </div>
       </aside>
 
@@ -370,7 +413,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               type="button"
               onClick={async () => {
                 setNotifOpen(true);
-                await loadNotifications();
+                if (user) await loadNotifications();
               }}
               className="relative text-zinc-400 hover:text-zinc-900 transition-colors"
             >

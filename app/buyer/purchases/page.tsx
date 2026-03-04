@@ -41,9 +41,32 @@ export default function BuyerPurchasesPage() {
   const [productsById, setProductsById] = useState<Record<string, DbProduct>>({});
   const [vendorsById, setVendorsById] = useState<Record<string, DbProfile>>({});
 
-  useEffect(() => {
-    if (!user) return;
+  if (!user) {
+    return (
+      <div className="max-w-3xl mx-auto space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold text-zinc-900 tracking-tight">My Purchases</h1>
+          <p className="text-zinc-500">Log in to view your orders</p>
+        </div>
 
+        <div className="bg-white rounded-3xl border border-zinc-200 shadow-sm p-10 text-center space-y-4">
+          <ShoppingBag size={44} className="mx-auto text-zinc-400" />
+          <p className="text-lg font-bold text-zinc-900">Visitor mode</p>
+          <p className="text-sm text-zinc-500">Create an account or log in to access your purchase history.</p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
+            <Link href="/login" className="px-6 py-3 bg-zinc-900 text-white rounded-2xl font-bold hover:bg-zinc-800 transition-all">
+              Log in
+            </Link>
+            <Link href="/register/role" className="px-6 py-3 bg-white border border-zinc-200 rounded-2xl font-bold text-zinc-900 hover:bg-zinc-50 transition-all">
+              Create account
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  useEffect(() => {
     const run = async () => {
       setLoading(true);
       try {

@@ -18,16 +18,9 @@ import {
 
 export default function VendorLayout({ children }: { children: React.ReactNode }) {
   const { user, logout, isLoading } = useAuth();
-  const router = useRouter();
   const pathname = usePathname();
 
-  useEffect(() => {
-    if (!isLoading && (!user || user.role !== 'VENDOR')) {
-      router.push('/login');
-    }
-  }, [user, isLoading, router]);
-
-  if (isLoading || !user) return null;
+  if (isLoading) return null;
 
   const navItems = [
     { icon: <LayoutDashboard size={20} />, label: 'Dashboard', href: '/vendor/dashboard' },
@@ -65,22 +58,38 @@ export default function VendorLayout({ children }: { children: React.ReactNode }
         </nav>
 
         <div className="p-6 border-t border-zinc-800 space-y-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold border border-emerald-500 shadow-lg">
-              {user.name[0]}
+          {user ? (
+            <>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold border border-emerald-500 shadow-lg">
+                  {user.name[0]}
+                </div>
+                <div className="flex-grow min-w-0">
+                  <p className="text-sm font-bold text-white truncate">{user.name}</p>
+                  <p className="text-xs text-zinc-500 truncate">Verified Seller</p>
+                </div>
+              </div>
+              <button 
+                onClick={logout}
+                className="w-full flex items-center gap-3 px-4 py-3 text-zinc-500 hover:text-red-400 hover:bg-red-400/10 rounded-xl font-medium transition-all"
+              >
+                <LogOut size={20} />
+                Log Out
+              </button>
+            </>
+          ) : (
+            <div className="px-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-center space-y-3">
+              <p className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Visitor mode</p>
+              <div className="grid grid-cols-2 gap-2">
+                <Link href="/login" className="px-3 py-2 rounded-xl bg-white/10 border border-white/10 text-xs font-bold text-white hover:bg-white/15 transition-all">
+                  Log in
+                </Link>
+                <Link href="/register/role" className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition-all">
+                  Sign up
+                </Link>
+              </div>
             </div>
-            <div className="flex-grow min-w-0">
-              <p className="text-sm font-bold text-white truncate">{user.name}</p>
-              <p className="text-xs text-zinc-500 truncate">Verified Seller</p>
-            </div>
-          </div>
-          <button 
-            onClick={logout}
-            className="w-full flex items-center gap-3 px-4 py-3 text-zinc-500 hover:text-red-400 hover:bg-red-400/10 rounded-xl font-medium transition-all"
-          >
-            <LogOut size={20} />
-            Log Out
-          </button>
+          )}
         </div>
       </aside>
 
@@ -91,18 +100,29 @@ export default function VendorLayout({ children }: { children: React.ReactNode }
             {navItems.find(i => i.href === pathname)?.label || 'Vendor Hub'}
           </h2>
           <div className="flex items-center gap-4">
-            <Link 
-              href="/vendor/live/create"
-              className="flex items-center gap-2 px-6 py-2.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-600/20 active:scale-95"
-            >
-              <Radio size={18} /> Go Live
-            </Link>
-            <Link 
-              href="/vendor/products/create"
-              className="flex items-center gap-2 px-6 py-2.5 bg-zinc-900 text-white rounded-xl font-bold hover:bg-zinc-800 transition-all shadow-lg active:scale-95"
-            >
-              <PlusCircle size={18} /> Add Product
-            </Link>
+            {user ? (
+              <>
+                <Link 
+                  href="/vendor/live/create"
+                  className="flex items-center gap-2 px-6 py-2.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-600/20 active:scale-95"
+                >
+                  <Radio size={18} /> Go Live
+                </Link>
+                <Link 
+                  href="/vendor/products/create"
+                  className="flex items-center gap-2 px-6 py-2.5 bg-zinc-900 text-white rounded-xl font-bold hover:bg-zinc-800 transition-all shadow-lg active:scale-95"
+                >
+                  <PlusCircle size={18} /> Add Product
+                </Link>
+              </>
+            ) : (
+              <Link 
+                href="/login"
+                className="flex items-center gap-2 px-6 py-2.5 bg-zinc-900 text-white rounded-xl font-bold hover:bg-zinc-800 transition-all shadow-lg active:scale-95"
+              >
+                Log in to manage
+              </Link>
+            )}
           </div>
         </header>
 

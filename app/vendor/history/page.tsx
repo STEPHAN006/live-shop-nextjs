@@ -14,6 +14,7 @@ import {
   Loader2
 } from 'lucide-react';
 import Image from 'next/image';
+import Link from 'next/link';
 
 import { getSupabaseBrowserClient } from '@/lib/supabase';
 import { useAuth } from '@/hooks/use-auth';
@@ -36,6 +37,31 @@ export default function VendorHistoryPage() {
   const { user } = useAuth();
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
 
+  if (!user) {
+    return (
+      <div className="max-w-3xl mx-auto space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold text-zinc-900 tracking-tight">Sales History</h1>
+          <p className="text-zinc-500">Log in as a seller to analyze your sales</p>
+        </div>
+
+        <div className="bg-white rounded-3xl border border-zinc-200 shadow-sm p-10 text-center space-y-4">
+          <BarChart3 size={44} className="mx-auto text-zinc-400" />
+          <p className="text-lg font-bold text-zinc-900">Visitor mode</p>
+          <p className="text-sm text-zinc-500">To view revenue stats and export sales, please log in.</p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
+            <Link href="/login" className="px-6 py-3 bg-zinc-900 text-white rounded-2xl font-bold hover:bg-zinc-800 transition-all">
+              Log in
+            </Link>
+            <Link href="/register/role" className="px-6 py-3 bg-white border border-zinc-200 rounded-2xl font-bold text-zinc-900 hover:bg-zinc-50 transition-all">
+              Create account
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const [loading, setLoading] = useState(true);
   const [windowDays, setWindowDays] = useState<7 | 30>(7);
   const [purchases, setPurchases] = useState<DbPurchase[]>([]);
@@ -47,8 +73,6 @@ export default function VendorHistoryPage() {
   const [uniqueBuyers, setUniqueBuyers] = useState(0);
 
   useEffect(() => {
-    if (!user) return;
-
     const run = async () => {
       setLoading(true);
       try {

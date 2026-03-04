@@ -19,16 +19,9 @@ import { motion } from 'motion/react';
 
 export default function BuyerLayout({ children }: { children: React.ReactNode }) {
   const { user, logout, isLoading } = useAuth();
-  const router = useRouter();
   const pathname = usePathname();
 
-  useEffect(() => {
-    if (!isLoading && !user) {
-      router.push('/login');
-    }
-  }, [user, isLoading, router]);
-
-  if (isLoading || !user) return null;
+  if (isLoading) return null;
 
   const navItems = [
     { icon: <Home size={20} />, label: 'Feed', href: '/buyer/feed' },
@@ -65,22 +58,38 @@ export default function BuyerLayout({ children }: { children: React.ReactNode })
         </nav>
 
         <div className="p-4 border-t border-zinc-100 space-y-4">
-          <div className="flex items-center gap-3 px-4 py-2">
-            <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-900 font-bold border border-zinc-200">
-              {user.name[0]}
+          {user ? (
+            <>
+              <div className="flex items-center gap-3 px-4 py-2">
+                <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-900 font-bold border border-zinc-200">
+                  {user.name[0]}
+                </div>
+                <div className="flex-grow min-w-0">
+                  <p className="text-sm font-bold text-zinc-900 truncate">{user.name}</p>
+                  <p className="text-xs text-zinc-500 truncate">${user.walletBalance.toFixed(2)}</p>
+                </div>
+              </div>
+              <button 
+                onClick={logout}
+                className="w-full flex items-center gap-3 px-4 py-3 text-zinc-500 hover:text-red-600 hover:bg-red-50 rounded-xl font-medium transition-all"
+              >
+                <LogOut size={20} />
+                Log Out
+              </button>
+            </>
+          ) : (
+            <div className="px-4 py-4 rounded-2xl bg-zinc-50 border border-zinc-200 text-center space-y-3">
+              <p className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Visitor mode</p>
+              <div className="grid grid-cols-2 gap-2">
+                <Link href="/login" className="px-3 py-2 rounded-xl bg-white border border-zinc-200 text-xs font-bold text-zinc-900 hover:bg-zinc-50 transition-all">
+                  Log in
+                </Link>
+                <Link href="/register/role" className="px-3 py-2 rounded-xl bg-zinc-900 text-white text-xs font-bold hover:bg-zinc-800 transition-all">
+                  Sign up
+                </Link>
+              </div>
             </div>
-            <div className="flex-grow min-w-0">
-              <p className="text-sm font-bold text-zinc-900 truncate">{user.name}</p>
-              <p className="text-xs text-zinc-500 truncate">${user.walletBalance.toFixed(2)}</p>
-            </div>
-          </div>
-          <button 
-            onClick={logout}
-            className="w-full flex items-center gap-3 px-4 py-3 text-zinc-500 hover:text-red-600 hover:bg-red-50 rounded-xl font-medium transition-all"
-          >
-            <LogOut size={20} />
-            Log Out
-          </button>
+          )}
         </div>
       </aside>
 
@@ -91,9 +100,15 @@ export default function BuyerLayout({ children }: { children: React.ReactNode })
         </Link>
         <div className="flex items-center gap-4">
           <Link href="/search"><Search size={24} className="text-zinc-500" /></Link>
-          <Link href="/buyer/profile" className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-900 font-bold border border-zinc-200 text-xs">
-            {user.name[0]}
-          </Link>
+          {user ? (
+            <Link href="/buyer/profile" className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-900 font-bold border border-zinc-200 text-xs">
+              {user.name[0]}
+            </Link>
+          ) : (
+            <Link href="/login" className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-500 font-bold border border-zinc-200 text-xs">
+              ?
+            </Link>
+          )}
         </div>
       </header>
 
@@ -110,14 +125,24 @@ export default function BuyerLayout({ children }: { children: React.ReactNode })
             />
           </div>
           <div className="flex items-center gap-6">
-            <button className="relative text-zinc-500 hover:text-zinc-900 transition-colors">
+            <Link
+              href="/buyer/notifications"
+              className="relative text-zinc-500 hover:text-zinc-900 transition-colors"
+            >
               <Bell size={22} />
               <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-600 text-white text-[10px] font-bold flex items-center justify-center rounded-full border-2 border-white">2</span>
-            </button>
-            <Link href="/finance/wallet" className="flex items-center gap-2 px-4 py-2 bg-zinc-50 border border-zinc-200 rounded-xl hover:bg-zinc-100 transition-all">
-              <CreditCard size={18} className="text-zinc-500" />
-              <span className="text-sm font-bold text-zinc-900">${user.walletBalance.toFixed(2)}</span>
             </Link>
+            {user ? (
+              <Link href="/finance/wallet" className="flex items-center gap-2 px-4 py-2 bg-zinc-50 border border-zinc-200 rounded-xl hover:bg-zinc-100 transition-all">
+                <CreditCard size={18} className="text-zinc-500" />
+                <span className="text-sm font-bold text-zinc-900">${user.walletBalance.toFixed(2)}</span>
+              </Link>
+            ) : (
+              <Link href="/login" className="flex items-center gap-2 px-4 py-2 bg-zinc-50 border border-zinc-200 rounded-xl hover:bg-zinc-100 transition-all">
+                <CreditCard size={18} className="text-zinc-500" />
+                <span className="text-sm font-bold text-zinc-700">Wallet</span>
+              </Link>
+            )}
           </div>
         </header>
 
